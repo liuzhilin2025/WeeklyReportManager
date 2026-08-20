@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>周报系统</title>
+    <!-- Bootstrap 5 样式（快速美化） -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f5f7fa; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .tab-header { display: flex; gap: 20px; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 25px; }
+        .tab-header span { cursor: pointer; font-size: 16px; font-weight: 500; color: #6c757d; padding: 6px 12px; border-radius: 6px; }
+        .tab-header span.active { color: #0d6efd; background: #e7f1ff; }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+        .btn-group { float: right; }
+        textarea { resize: vertical; }
+        .week-title { font-size: 18px; font-weight: 600; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- 开发测试用：用户切换 -->
+    <div class="row mb-3">
+        <div class="col-md-3">
+            <label for="userIdSelect" class="form-label">模拟用户：</label>
+            <select id="userIdSelect" class="form-select">
+                <option value="1">AAA (ID:1)</option>
+                <option value="2">BBB (ID:2)</option>
+                <option value="3">CCC (ID:3)</option>
+                <option value="4">DDD (ID:4)</option>
+            </select>
+        </div>
+    </div>
+    <!-- Tab 切换 -->
+    <div class="tab-header">
+        <span class="active" data-tab="current">本周周报</span>
+        <span data-tab="history">历史周报</span>
+    </div>
+
+    <!-- ========== Tab1: 本周周报 ========== -->
+    <div id="tab-current" class="tab-pane active">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="week-title" id="weekTitle">周报</div>
+            <div>
+                <button class="btn btn-secondary me-2" onclick="saveDraft()">保存</button>
+                <button class="btn btn-primary" onclick="submitReport()">保存并提交</button>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">总体进度</label>
+            <textarea class="form-control" id="content1" rows="3" placeholder="请填写本周总体进度..." maxlength="1000"></textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-bold">本周进展</label>
+            <textarea class="form-control" id="content2" rows="3" placeholder="请填写本周工作进展..." maxlength="1000"></textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-bold">下周目标</label>
+            <textarea class="form-control" id="content3" rows="3" placeholder="请填写下周计划..." maxlength="1000"></textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-bold">其他补充</label>
+            <textarea class="form-control" id="content4" rows="3" placeholder="其他想补充的内容..." maxlength="1000"></textarea>
+        </div>
+    </div>
+
+    <!-- ========== Tab2: 历史周报 / 团队视图 ========== -->
+    <div id="tab-history" class="tab-pane">
+        <div class="row g-2 mb-3">
+            <div class="col-md-3">
+                <input type="date" class="form-control" id="startDate" placeholder="开始日期">
+            </div>
+            <div class="col-md-3">
+                <input type="date" class="form-control" id="endDate" placeholder="结束日期">
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" onclick="loadHistory()">搜索</button>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-outline-secondary w-100" onclick="resetSearch()">重置</button>
+            </div>
+            <div class="col-md-2">
+                <span class="badge bg-info" id="totalBadge">共 0 周</span>
+            </div>
+        </div>
+
+        <div id="historyContainer">
+            <div class="text-center text-muted py-4">请选择日期范围后搜索</div>
+        </div>
+
+        <!-- 分页 -->
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <span id="pageInfo" class="text-muted">第 1 / 1 页</span>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary me-1" onclick="prevPage()">上一页</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="nextPage()">下一页</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 查看详情弹窗 ========== -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">周报详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-footer" id="detailActions">
+                <!-- 由 JS 动态填充 -->
+            </div>
+            <div class="modal-body" id="detailBody">
+                <!-- 动态填充 -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // ==================== 全局配置 ====================
+    const BASE_URL = 'http://localhost:8080';   // 双击打开(file://)时用绝对地址，配 CorsConfig 跨域
+    let currentPage = 1;
+    const PAGE_SIZE = 10;
+    let totalWeeks = 0;
+    let currentData = [];
+
+    // ==================== 用户切换 ====================
+    // 切换用户时重新加载该用户的本周周报
+    document.getElementById('userIdSelect').addEventListener('change', loadCurrentWeek);
+
+    // ==================== Tab 切换 ====================
+    document.querySelectorAll('.tab-header span').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.tab-header span').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            const target = this.dataset.tab;
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+            document.getElementById('tab-' + target).classList.add('active');
+            if (target === 'history') {
+                loadHistory();
+            }
+            if (target === 'current') {
+                loadCurrentWeek();
+            }
+        });
+    });
+
+    // ==================== 加载本周周报 ====================
+    function loadCurrentWeek() {
+        const userId = getCurrentUserId();
+        fetch(`${BASE_URL}/api/reports/current?userId=${userId}`)   // ← 关键！加上 userId
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data) {
+                    const r = data.data;
+                    document.getElementById('weekTitle').innerText = r.title || '周报';
+                    document.getElementById('content1').value = r.overallProgress || '';
+                    document.getElementById('content2').value = r.weeklyWorkReport || '';
+                    document.getElementById('content3').value = r.nextWeekPlan || '';
+                    document.getElementById('content4').value = r.other || '';
+                } else {
+                    document.getElementById('content1').value = '';
+                    document.getElementById('content2').value = '';
+                    document.getElementById('content3').value = '';
+                    document.getElementById('content4').value = '';
+                }
+            })
+            .catch(() => {});
+    }
+
+    // ==================== 保存草稿 ====================
+    function saveDraft() {
+        const userId = getCurrentUserId();
+        const payload = {
+            overallProgress: document.getElementById('content1').value,
+            weeklyWorkReport: document.getElementById('content2').value,
+            nextWeekPlan: document.getElementById('content3').value,
+            other: document.getElementById('content4').value
+        };
+        fetch(`${BASE_URL}/api/reports/save?userId=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200) {
+                    alert('保存成功！');
+                } else {
+                    alert('保存失败：' + data.message);
+                }
+            })
+            .catch(() => alert('网络错误'));
+    }
+
+    function getCurrentUserId() {
+        const select = document.getElementById('userIdSelect');
+        return parseInt(select.value);
+    }
+
+    // ==================== 提交周报 ====================
+    function submitReport() {
+        if (!confirm('确定提交本周周报吗？提交后将不可编辑。')) return;
+        const userId = getCurrentUserId();
+        const payload = {
+            overallProgress: document.getElementById('content1').value,
+            weeklyWorkReport: document.getElementById('content2').value,
+            nextWeekPlan: document.getElementById('content3').value,
+            other: document.getElementById('content4').value
+        };
+        fetch(`${BASE_URL}/api/reports/submit?userId=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200) {
+                    alert('提交成功！');
+                    loadCurrentWeek(); // 刷新状态
+                } else {
+                    alert('提交失败：' + data.message);
+                }
+            })
+            .catch(() => alert('网络错误'));
+    }
+
+    // ==================== 加载团队视图（历史周报） ====================
+    function loadHistory() {
+        let url = `${BASE_URL}/api/reports/team?pageNo=${currentPage}&pageSize=${PAGE_SIZE}`;
+
+        const start = document.getElementById('startDate').value;
+        const end = document.getElementById('endDate').value;
+
+        if (start) url += `&startDate=${start}`;
+        if (end) url += `&endDate=${end}`;
+
+        // 直接请求，不再强制要求日期
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data) {
+                    currentData = data.data.records || [];
+                    totalWeeks = data.data.total || 0;
+                    renderHistory(currentData);
+                    updatePagination(data.data.current, data.data.pages);
+                    document.getElementById('totalBadge').innerText = '共 ' + totalWeeks + ' 周';
+                } else {
+                    document.getElementById('historyContainer').innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
+                }
+            })
+            .catch(() => {
+                document.getElementById('historyContainer').innerHTML = '<div class="text-center text-danger py-4">加载失败</div>';
+            });
+    }
+
+    function renderHistory(groups) {
+        const container = document.getElementById('historyContainer');
+        if (!groups || groups.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
+            return;
+        }
+        let html = '';
+        for (const group of groups) {
+            html += `<div class="card mb-3"><div class="card-header bg-light fw-bold">${group.weekTitle}</div><div class="card-body p-0"><table class="table table-striped mb-0"><thead><tr><th>成员</th><th>更新时间</th><th>提交状态</th><th>操作</th></tr></thead><tbody>`;
+            for (const member of group.members) {
+                const statusMap = {
+                    'EDITING': '编辑中',
+                    'SUBMITTED': '已提交',
+                    'NOT_SUBMITTED': '未提交'
+                };
+                const statusText = statusMap[member.status] || member.status;
+                const updateTime = member.updateTime ? member.updateTime.replace('T', ' ') : '-';
+                const canEdit = member.status === 'EDITING' || member.status === 'NOT_SUBMITTED';
+                html += `<tr>
+                    <td>${member.userName}</td>
+                    <td>${updateTime}</td>
+                    <td><span class="badge ${member.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning'}">${statusText}</span></td>
+                    <td>
+                        ${member.reportId ? `<button class="btn btn-sm btn-outline-primary" onclick="viewDetail(${member.reportId})">查看</button>` : '-'}
+                    </td>
+                </tr>`;
+            }
+            html += `</tbody></table></div></div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    // ==================== 查看详情 ====================
+    function viewDetail(reportId) {
+        fetch(`${BASE_URL}/api/reports/${reportId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data) {
+                    const r = data.data;
+                    const isEditable = r.status === 'EDITING';
+
+                    // 构建弹窗内容（可编辑或只读）
+                    let bodyHtml = `
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">总体进度</label>
+                        ${isEditable
+                        ? `<textarea class="form-control" id="editOverallProgress" rows="3">${r.overallProgress || ''}</textarea>`
+                        : `<p>${r.overallProgress || '-'}</p>`
+                    }
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">本周进展</label>
+                        ${isEditable
+                        ? `<textarea class="form-control" id="editWeeklyWorkReport" rows="3">${r.weeklyWorkReport || ''}</textarea>`
+                        : `<p>${r.weeklyWorkReport || '-'}</p>`
+                    }
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">下周目标</label>
+                        ${isEditable
+                        ? `<textarea class="form-control" id="editNextWeekPlan" rows="3">${r.nextWeekPlan || ''}</textarea>`
+                        : `<p>${r.nextWeekPlan || '-'}</p>`
+                    }
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">其他补充</label>
+                        ${isEditable
+                        ? `<textarea class="form-control" id="editOther" rows="3">${r.other || ''}</textarea>`
+                        : `<p>${r.other || '-'}</p>`
+                    }
+                    </div>
+                    <hr>
+                    <p><strong>状态：</strong>${r.status === 'SUBMITTED' ? '已提交' : '编辑中'}</p>
+                    <p><strong>提交时间：</strong>${r.submittedAt ? r.submittedAt.replace('T', ' ') : '-'}</p>
+                `;
+
+                    // 操作按钮
+                    let actionButtons = '';
+                    if (isEditable) {
+                        actionButtons = `
+                        <button class="btn btn-primary me-2" onclick="saveDetailEdit(${r.id})">保存修改</button>
+                        <button class="btn btn-success" onclick="submitDetailReport(${r.id})">提交</button>
+                    `;
+                    }
+
+                    document.getElementById('detailBody').innerHTML = bodyHtml;
+                    document.getElementById('detailActions').innerHTML = actionButtons;
+
+                    const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+                    modal.show();
+                }
+            });
+    }
+
+    // 在弹窗里保存修改
+    function saveDetailEdit(reportId) {
+        const payload = {
+            overallProgress: document.getElementById('editOverallProgress').value,
+            weeklyWorkReport: document.getElementById('editWeeklyWorkReport').value,
+            nextWeekPlan: document.getElementById('editNextWeekPlan').value,
+            other: document.getElementById('editOther').value
+        };
+
+        fetch(`${BASE_URL}/api/reports/${reportId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200) {
+                    // ★ 先关闭弹窗
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('detailModal'));
+                    if (modal) {
+                        modal.hide();
+                    }
+                    alert('保存成功！');
+                    // ★ 刷新列表（让数据更新）
+                    loadHistory();
+                } else {
+                    alert('保存失败：' + data.message);
+                }
+            })
+            .catch(() => alert('网络错误'));
+    }
+
+    // 在弹窗里提交
+    function submitDetailReport(reportId) {
+        if (!confirm('确定提交这份周报吗？提交后将不可编辑。')) return;
+
+        const payload = {
+            overallProgress: document.getElementById('editOverallProgress').value,
+            weeklyWorkReport: document.getElementById('editWeeklyWorkReport').value,
+            nextWeekPlan: document.getElementById('editNextWeekPlan').value,
+            other: document.getElementById('editOther').value
+        };
+
+        fetch(`${BASE_URL}/api/reports/${reportId}/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('detailModal'));
+                    if (modal) {
+                        modal.hide();
+                    }
+                    alert('提交成功！');
+                    loadHistory();
+                } else {
+                    alert('提交失败：' + data.message);
+                }
+            })
+            .catch(() => alert('网络错误'));
+    }
+
+    // ==================== 分页 ====================
+    function updatePagination(current, pages) {
+        document.getElementById('pageInfo').innerText = `第 ${current || 1} / ${pages || 1} 页`;
+    }
+
+    function prevPage() {
+        if (currentPage > 1) {
+            currentPage--;
+            loadHistory();
+        }
+    }
+
+    function nextPage() {
+        const pages = Math.ceil(totalWeeks / PAGE_SIZE);   // totalWeeks 是全局变量
+        if (currentPage < pages) {
+            currentPage++;
+            loadHistory();
+        }
+    }
+
+    function resetSearch() {
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+        currentPage = 1;
+        document.getElementById('historyContainer').innerHTML = '<div class="text-center text-muted py-4">请选择日期范围后搜索</div>';
+        document.getElementById('totalBadge').innerText = '共 0 周';
+        document.getElementById('pageInfo').innerText = '第 1 / 1 页';
+    }
+
+    // ==================== 初始化 ====================
+    window.onload = function() {
+        loadCurrentWeek();
+        // 默认显示本周周报
+        document.querySelector('.tab-header span.active').click();
+    };
+</script>
+
+</body>
+</html>

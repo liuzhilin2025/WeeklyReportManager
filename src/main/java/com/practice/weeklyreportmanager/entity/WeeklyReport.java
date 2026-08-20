@@ -9,7 +9,13 @@ import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import lombok.Data;
 
+// Lombok 就会在编译时自动生成：
+// 所有字段的 getter 和 setter 方法
+// toString() 方法
+// equals() 和 hashCode() 方法
+@Data
 @TableName("t_weeklyreport")
 public class WeeklyReport {
 
@@ -26,7 +32,7 @@ public class WeeklyReport {
     private String overallProgress;
 
     @NotBlank(message = "本周进展不能为空")
-    private String weeklyReportWork;
+    private String weeklyWorkReport;
 
     @NotBlank(message = "下周目标不能为空")
     private String nextWeekPlan;
@@ -43,99 +49,4 @@ public class WeeklyReport {
 
     private Long userId;
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public LocalDate getWeekStartDate() {
-        return weekStartDate;
-    }
-
-    public void setWeekStartDate(LocalDate weekStartDate) {
-        this.weekStartDate = weekStartDate;
-    }
-
-    public String getOverallProgress() {
-        return overallProgress;
-    }
-
-    public void setOverallProgress(String overallProgress) {
-        this.overallProgress = overallProgress;
-    }
-
-    public String getWeeklyReportWork() {
-        return weeklyReportWork;
-    }
-
-    public void setWeeklyReportWork(String weeklyReportWork) {
-        this.weeklyReportWork = weeklyReportWork;
-    }
-
-    public String getNextWeekPlan() {
-        return nextWeekPlan;
-    }
-
-    public void setNextWeekPlan(String nextWeekPlan) {
-        this.nextWeekPlan = nextWeekPlan;
-    }
-
-    public String getOther() {
-        return other;
-    }
-
-    public void setOther(String other) {
-        this.other = other;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    public LocalDateTime getSubmittedAt() {
-        return submittedAt;
-    }
-
-    public void setSubmittedAt(LocalDateTime submittedAt) {
-        this.submittedAt = submittedAt;
-    }
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
 }

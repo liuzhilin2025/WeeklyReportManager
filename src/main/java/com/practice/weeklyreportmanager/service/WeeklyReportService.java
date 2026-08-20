@@ -1,17 +1,19 @@
 package com.practice.weeklyreportmanager.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.practice.weeklyreportmanager.dto.WeeklyReportSumbitDTO;
-import com.practice.weeklyreportmanager.dto.WeeklyReportUpdateDTO;
+import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
 import com.practice.weeklyreportmanager.entity.WeeklyReport;
+import com.practice.weeklyreportmanager.vo.WeekGroupVO;
 
 import java.time.LocalDate;
 
 public interface WeeklyReportService {
-    WeeklyReport getCurrentWeekReport();
-    WeeklyReport saveWeeklyReport(WeeklyReportSumbitDTO dto);
-    WeeklyReport submitWeeklyReport(WeeklyReportSumbitDTO dto);
-    Page<WeeklyReport> getReports(long pageNo, long pageSize, LocalDate start, LocalDate end);
+    WeeklyReport getCurrentWeekReport(Long userId);
+    WeeklyReport saveWeeklyReport(WeeklyReportDTO dto, Long userId);
+    WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId);
+    Page<WeeklyReport> getReports(Integer pageNo, Integer pageSize, LocalDate start, LocalDate end);
     WeeklyReport getReportById(Long id);
-    WeeklyReport updateWeeklyReport(WeeklyReportUpdateDTO dto, Long id);
+    WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id);
+    WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id);
+    Page<WeekGroupVO> getTeamViewReports(LocalDate startDate, LocalDate endDate, Integer pageNo, Integer pageSize);
 }
