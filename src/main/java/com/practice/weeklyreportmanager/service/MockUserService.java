@@ -16,10 +16,11 @@ public class MockUserService {
     @PostConstruct
     public void init() {
         // 模拟团队成员数据（和 VoiceManager 一样，在启动时塞数据）
-        mockUserMap.put(1L, new MockUser(1L, "AAA"));
-        mockUserMap.put(2L, new MockUser(2L, "BBB"));
-        mockUserMap.put(3L, new MockUser(3L, "CCC"));
-        mockUserMap.put(4L, new MockUser(4L, "DDD"));
+        mockUserMap.put(1L, new MockUser(1L, "张三"));
+        mockUserMap.put(2L, new MockUser(2L, "李四"));
+        mockUserMap.put(3L, new MockUser(3L, "王五"));
+        mockUserMap.put(4L, new MockUser(4L, "赵六"));
+        mockUserMap.put(5L, new MockUser(5L, "秦七"));
         // 以后想加人就在这里加
     }
 

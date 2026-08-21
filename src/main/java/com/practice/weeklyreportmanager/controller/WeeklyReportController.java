@@ -49,11 +49,12 @@ public class WeeklyReportController {
 
     @GetMapping("/history")
     public Result<Page<WeeklyReport>> getReports(
+            @RequestParam(required = false, defaultValue = "1") Long userId,
             @RequestParam(defaultValue = "1") Integer pageNo,
             @RequestParam(defaultValue = "10") Integer pageSize,
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate start,
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate end) {
-        Page<WeeklyReport> page = weeklyReportService.getReports(pageNo, pageSize, start, end);
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate) {
+        Page<WeeklyReport> page = weeklyReportService.getReports(userId, pageNo, pageSize,startDate, endDate);
         return Result.success(page);
     }
 

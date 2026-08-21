@@ -2,101 +2,302 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>周报系统</title>
+    <title>我的周报</title>
     <!-- Bootstrap 5 样式（快速美化） -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- flatpickr 日期选择器（可自定义显示格式） -->
+    <link href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" rel="stylesheet">
     <style>
-        body { background: #f5f7fa; padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-        .tab-header { display: flex; gap: 20px; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 25px; }
-        .tab-header span { cursor: pointer; font-size: 16px; font-weight: 500; color: #6c757d; padding: 6px 12px; border-radius: 6px; }
-        .tab-header span.active { color: #0d6efd; background: #e7f1ff; }
+        :root {
+            --ink: #111114;       /* 主黑 */
+            --accent: #ff2840;    /* 主红 */
+            --accent-dark: #e02237;
+            --line: #ece7e0;      /* 暖色分隔线 / 边框 */
+            --muted: #6b6b76;     /* 次要文字 */
+            --bg-warm: #f8f5ef;   /* 暖白页面背景 */
+            --bg-soft: #faf7f2;   /* 暖浅面板（卡片/表头） */
+            --radius: 10px;
+        }
+        body {
+            background:
+                radial-gradient(1100px 420px at 85% -8%, rgba(255,40,64,0.06), transparent 60%),
+                radial-gradient(900px 360px at 5% -10%, rgba(17,17,20,0.05), transparent 60%),
+                var(--bg-warm);
+            padding: 24px; min-height: 100vh; color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        .container { position: relative; overflow: hidden; max-width: 1200px; margin: 0 auto; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 40px 32px 150px; box-shadow: 0 10px 40px rgba(17,17,20,0.07); }
+        /* 顶部品牌色条：黑→红渐变 */
+        .container::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #111114, #ff2840); }
+        .page-title { font-weight: 700; }
+        .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .22em; color: var(--accent); text-transform: uppercase; margin-bottom: 6px; }
+        .gradient-text { background: linear-gradient(90deg, #111114 0%, #ff2840 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .page-subtitle { color: var(--muted); }
+        .user-switch { width: 160px; }
+
+        /* Tab */
+        .tab-header { display: flex; gap: 8px; border-bottom: 2px solid var(--line); margin-bottom: 28px; }
+        .tab-header span { cursor: pointer; font-size: 15px; font-weight: 500; color: #555; padding: 8px 18px; border-radius: 999px; transition: all .2s; }
+        .tab-header span:hover { color: var(--accent); background: #fff5f6; }
+        .tab-header span.active { color: #fff; background: var(--ink); box-shadow: 0 2px 8px rgba(17,17,20,0.18); }
+        .tab-header span.active::after { display: none; }
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
-        .btn-group { float: right; }
-        textarea { resize: vertical; }
-        .week-title { font-size: 18px; font-weight: 600; margin-bottom: 15px; }
+
+        /* 表单卡片 */
+        .form-card { background: var(--bg-soft); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 20px; }
+        .form-card .form-item + .form-item { margin-top: 18px; }
+
+        /* 筛选栏 */
+        .filter-bar { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+
+        /* 表格 */
+        .table thead th { background: var(--bg-soft); font-weight: 600; white-space: nowrap; border-bottom: 2px solid var(--accent) !important; }
+        .table tbody tr:hover { background: rgba(255,40,64,0.04); }
+        .table td { vertical-align: middle; }
+        .table tbody tr.row-clickable { cursor: pointer; }
+        .table tbody tr.row-clickable:hover { background: rgba(255,40,64,0.08); }
+        /* 第一列（成员/标题）和最后一列留出左右呼吸空间，避免贴边 */
+        .table th:first-child, .table td:first-child { padding-left: 16px; }
+        .table th:last-child, .table td:last-child { padding-right: 16px; }
+
+        /* 卡片（团队历史等） */
+        .card { background: #fff; border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(17,17,20,0.04); transition: transform .2s, box-shadow .2s; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(17,17,20,0.08); }
+        .card .card-header { background: var(--bg-soft) !important; border-bottom: 1px solid var(--line); }
+
+        /* 输入控件 */
+        .form-control { background: #fff; border: 1px solid #ddd; }
+        .form-control:focus { background: #fff; border-color: var(--accent); box-shadow: 0 0 0 0.2rem rgba(255,40,64,0.1); }
+        .form-select { background-color: #fff; border: 1px solid #ddd; }
+
+        /* 按钮 */
+        .btn-gradient { background: linear-gradient(180deg, #ff5a6b 0%, #ff2840 60%, #e02237 100%); border: none; color: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(255,40,64,0.28); transition: all .2s; }
+        .btn-gradient:hover, .btn-gradient:focus { color: #fff; background: linear-gradient(180deg, #ff2840 0%, #d91f34 100%); box-shadow: 0 6px 18px rgba(255,40,64,0.35); transform: translateY(-1px); }
+        .btn-glass { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
+        .btn-glass:hover { background: #fff5f6; color: var(--accent); border-color: var(--accent); }
+
+        /* 分页栏 */
+        .pagination-bar { border-top: 1px solid var(--line); padding-top: 12px; }
+
+        .week-title { font-size: 20px; font-weight: 700; }
+        textarea { resize: vertical; min-height: 100px; }
+
+        /* 字数计数（文本框右下角） */
+        .char-counter { position: absolute; right: 10px; bottom: 8px; font-size: 12px; color: var(--muted); background: rgba(255,255,255,0.9); padding: 0 4px; border-radius: 4px; pointer-events: none; }
+        .char-counter.over { color: var(--accent); font-weight: 600; }
+
+        /* Toast 提示条 */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
+        .toast-item { position: relative; overflow: hidden; min-width: 260px; max-width: 360px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px 12px 20px; box-shadow: 0 6px 20px rgba(17,17,20,0.1); animation: toast-in .3s ease; }
+        .toast-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); }
+        .toast-item.success::before { background: var(--ink); }
+        .toast-item.error::before { background: var(--accent); }
+        .toast-item .toast-time { color: var(--muted); font-size: 12px; margin-top: 4px; }
+        .toast-item.toast-out { opacity: 0; transform: translateX(100%); transition: all .3s; }
+        @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* 本周提交进度（右下角，点击跳转团队视图） */
+        .week-progress { position: fixed; right: 24px; bottom: 24px; width: 220px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; box-shadow: 0 4px 16px rgba(17,17,20,0.08); z-index: 1000; cursor: pointer; transition: transform .2s, box-shadow .2s; }
+        .week-progress:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(17,17,20,0.12); }
+        .week-progress .wp-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .week-progress .wp-title::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 1px; }
+        .week-progress .wp-title::after { content: ' →'; color: var(--accent); }
+        .week-progress .wp-text { font-size: 12px; color: var(--muted); margin-top: 6px; }
+        .week-progress .progress { background: #f0f0f0; }
+        .week-progress .progress-bar { background: linear-gradient(90deg, #111114, #ff2840); }
+
+        /* 弹窗 */
+        .modal-content { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 48px rgba(17,17,20,0.18); }
+        .modal-header { border-bottom: 1px solid var(--line); }
+        .modal-footer { border-top: 1px solid var(--line); }
+
+        /* 详情弹窗字段 */
+        .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .detail-meta .meta-chip { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; color: #333; }
+        .detail-meta .badge { align-self: center; }
+        .report-field { white-space: pre-wrap; word-break: break-word; }
+
+        /* 状态徽章：黑红体系（覆盖 Bootstrap 颜色工具类） */
+        .bg-success { background-color: var(--accent) !important; color: #fff !important; }        /* 已提交 = 主红 */
+        .bg-warning { background-color: #fff !important; color: var(--ink) !important; border: 1px solid var(--ink); }  /* 编辑中 = 黑描边 */
+        .bg-danger { background-color: #f0f0f0 !important; color: var(--muted) !important; }       /* 未提交 = 中性灰 */
+        .bg-info { background-color: var(--bg-soft) !important; color: var(--ink) !important; }    /* 计数徽章 = 中性 */
+
+        /* 已提交时间文字 = 主红 */
+        .text-success { color: var(--accent) !important; }
+
+        /* flatpickr 日期选择器（黑红暖主题） */
+        .flatpickr-calendar { border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(17,17,20,0.12); }
+        .flatpickr-months .flatpickr-month, .flatpickr-current-month { color: var(--ink); }
+        .flatpickr-weekday { color: var(--ink); font-weight: 600; }
+        .flatpickr-day.selected, .flatpickr-day.selected:hover { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+        .flatpickr-day.today { border-color: var(--accent); }
+        .flatpickr-day:hover { background: #fff5f6; color: var(--accent); }
+        .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay, .flatpickr-day.flatpickr-disabled { color: #c9c4bc; }
+        .flatpickr-months .flatpickr-prev-month:hover svg, .flatpickr-months .flatpickr-next-month:hover svg { fill: var(--accent); }
+        .flatpickr-time input:hover, .flatpickr-time .flatpickr-am-pm:hover { background: #fff5f6; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <!-- 开发测试用：用户切换 -->
-    <div class="row mb-3">
-        <div class="col-md-3">
-            <label for="userIdSelect" class="form-label">模拟用户：</label>
-            <select id="userIdSelect" class="form-select">
-                <option value="1">AAA (ID:1)</option>
-                <option value="2">BBB (ID:2)</option>
-                <option value="3">CCC (ID:3)</option>
-                <option value="4">DDD (ID:4)</option>
+    <!-- 页面头部：标题 + 用户切换 -->
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <div>
+            <div class="eyebrow">WEEKLY REPORT</div>
+            <h4 class="page-title mb-1"><span class="gradient-text">我的周报</span></h4>
+            <div class="page-subtitle small" id="weekSubtitle">本周：--</div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <label class="form-label mb-0 text-muted small">当前用户</label>
+            <select id="userIdSelect" class="form-select form-select-sm user-switch">
+                <option value="1">张三</option>
+                <option value="2">李四</option>
+                <option value="3">王五</option>
+                <option value="4">赵六</option>
+                <option value="5">秦七</option>
             </select>
         </div>
     </div>
+    <hr class="mt-0 mb-4">
     <!-- Tab 切换 -->
     <div class="tab-header">
-        <span class="active" data-tab="current">本周周报</span>
-        <span data-tab="history">历史周报</span>
+        <span class="active" data-tab="current">填写周报</span>
+        <span data-tab="history">团队情况</span>
+        <span data-tab="myhistory">我的存档</span>
     </div>
 
-    <!-- ========== Tab1: 本周周报 ========== -->
+    <!-- ========== Tab1: 填写周报 ========== -->
     <div id="tab-current" class="tab-pane active">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="week-title" id="weekTitle">周报</div>
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div>
-                <button class="btn btn-secondary me-2" onclick="saveDraft()">保存</button>
-                <button class="btn btn-primary" onclick="submitReport()">保存并提交</button>
+                <div class="week-title d-flex align-items-center gap-2">
+                    <span id="weekTitle">周报</span>
+                    <span id="submitStatus" class="badge rounded-pill bg-success" style="display:none;">已提交</span>
+                </div>
+                <span class="text-muted small" id="draftHint">点击保存可将当前内容存为草稿</span>
+            </div>
+            <div id="reportActions" class="d-flex flex-column align-items-end gap-1">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-glass" onclick="saveDraft()">保存草稿</button>
+                    <button class="btn btn-gradient" onclick="submitReport()">保存并提交</button>
+                </div>
+                <div class="text-muted small" id="draftSavedTime" style="display:none;"></div>
             </div>
         </div>
 
-        <div class="mb-3">
-            <label class="form-label fw-bold">总体进度</label>
-            <textarea class="form-control" id="content1" rows="3" placeholder="请填写本周总体进度..." maxlength="1000"></textarea>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-bold">本周进展</label>
-            <textarea class="form-control" id="content2" rows="3" placeholder="请填写本周工作进展..." maxlength="1000"></textarea>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-bold">下周目标</label>
-            <textarea class="form-control" id="content3" rows="3" placeholder="请填写下周计划..." maxlength="1000"></textarea>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-bold">其他补充</label>
-            <textarea class="form-control" id="content4" rows="3" placeholder="其他想补充的内容..." maxlength="1000"></textarea>
+        <div class="form-card">
+            <div class="form-item">
+                <label class="form-label fw-bold">总体进度</label>
+                <div class="position-relative">
+                    <textarea class="form-control" id="content1" rows="4" placeholder="请填写本周总体进度..." maxlength="1000"></textarea>
+                    <span class="char-counter" id="counter1">0 / 1000</span>
+                </div>
+            </div>
+            <div class="form-item">
+                <label class="form-label fw-bold">本周进展</label>
+                <div class="position-relative">
+                    <textarea class="form-control" id="content2" rows="4" placeholder="请填写本周工作进展..." maxlength="1000"></textarea>
+                    <span class="char-counter" id="counter2">0 / 1000</span>
+                </div>
+            </div>
+            <div class="form-item">
+                <label class="form-label fw-bold">下周目标</label>
+                <div class="position-relative">
+                    <textarea class="form-control" id="content3" rows="4" placeholder="请填写下周计划..." maxlength="1000"></textarea>
+                    <span class="char-counter" id="counter3">0 / 1000</span>
+                </div>
+            </div>
+            <div class="form-item">
+                <label class="form-label fw-bold">其他补充</label>
+                <div class="position-relative">
+                    <textarea class="form-control" id="content4" rows="4" placeholder="其他想补充的内容..." maxlength="1000"></textarea>
+                    <span class="char-counter" id="counter4">0 / 1000</span>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- ========== Tab2: 历史周报 / 团队视图 ========== -->
+    <!-- ========== Tab2: 团队视图 ========== -->
     <div id="tab-history" class="tab-pane">
-        <div class="row g-2 mb-3">
-            <div class="col-md-3">
-                <input type="date" class="form-control" id="startDate" placeholder="开始日期">
-            </div>
-            <div class="col-md-3">
-                <input type="date" class="form-control" id="endDate" placeholder="结束日期">
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-primary w-100" onclick="loadHistory()">搜索</button>
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-outline-secondary w-100" onclick="resetSearch()">重置</button>
-            </div>
-            <div class="col-md-2">
-                <span class="badge bg-info" id="totalBadge">共 0 周</span>
+        <div class="filter-bar mb-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="startDate">开始日期</label>
+                    <input type="text" class="form-control" id="startDate" placeholder="YYYY-MM-DD" autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="endDate">结束日期</label>
+                    <input type="text" class="form-control" id="endDate" placeholder="YYYY-MM-DD" autocomplete="off">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-gradient w-100" onclick="loadHistory()">搜索</button>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-glass w-100" onclick="resetSearch()">重置</button>
+                </div>
+                <div class="col-md-2">
+                    <div class="badge bg-info w-100 d-flex align-items-center justify-content-center" id="totalBadge" style="height:38px;">共 0 周</div>
+                </div>
             </div>
         </div>
 
         <div id="historyContainer">
-            <div class="text-center text-muted py-4">请选择日期范围后搜索</div>
+            <div class="text-center text-muted py-4">加载中...</div>
         </div>
 
         <!-- 分页 -->
-        <div class="d-flex justify-content-between align-items-center mt-3">
+        <div class="pagination-bar d-flex justify-content-between align-items-center mt-3">
             <span id="pageInfo" class="text-muted">第 1 / 1 页</span>
-            <div>
-                <button class="btn btn-sm btn-outline-secondary me-1" onclick="prevPage()">上一页</button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="nextPage()">下一页</button>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-glass" onclick="prevPage()">上一页</button>
+                <button class="btn btn-sm btn-glass" onclick="nextPage()">下一页</button>
+                <span class="text-muted small ms-2">跳至</span>
+                <input type="number" class="form-control form-control-sm" style="width:72px;" min="1" placeholder="页码" onkeydown="if(event.key==='Enter'){jumpToPage(this,'team')}">
+                <span class="text-muted small">页</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== Tab3: 我的历史周报（个人） ========== -->
+    <div id="tab-myhistory" class="tab-pane">
+        <div class="filter-bar mb-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="startDateMy">开始日期</label>
+                    <input type="text" class="form-control" id="startDateMy" placeholder="YYYY-MM-DD" autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="endDateMy">结束日期</label>
+                    <input type="text" class="form-control" id="endDateMy" placeholder="YYYY-MM-DD" autocomplete="off">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-gradient w-100" onclick="loadMyHistory()">搜索</button>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-glass w-100" onclick="resetMySearch()">重置</button>
+                </div>
+                <div class="col-md-2">
+                    <div class="badge bg-info w-100 d-flex align-items-center justify-content-center" id="totalBadgeMy" style="height:38px;">共 0 条</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="myHistoryContainer">
+            <div class="text-center text-muted py-4">加载中...</div>
+        </div>
+
+        <!-- 分页 -->
+        <div class="pagination-bar d-flex justify-content-between align-items-center mt-3">
+            <span id="pageInfoMy" class="text-muted">第 1 / 1 页</span>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-glass" onclick="prevMyPage()">上一页</button>
+                <button class="btn btn-sm btn-glass" onclick="nextMyPage()">下一页</button>
+                <span class="text-muted small ms-2">跳至</span>
+                <input type="number" class="form-control form-control-sm" style="width:72px;" min="1" placeholder="页码" onkeydown="if(event.key==='Enter'){jumpToPage(this,'my')}">
+                <span class="text-muted small">页</span>
             </div>
         </div>
     </div>
@@ -107,20 +308,34 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">周报详情</h5>
+                <h5 class="modal-title" id="detailModalTitle">周报详情</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detailBody">
+                <!-- 由 JS 动态填充 -->
             </div>
             <div class="modal-footer" id="detailActions">
                 <!-- 由 JS 动态填充 -->
-            </div>
-            <div class="modal-body" id="detailBody">
-                <!-- 动态填充 -->
             </div>
         </div>
     </div>
 </div>
 
+<!-- Toast 提示容器 -->
+<div id="toastContainer" class="toast-container"></div>
+
+<!-- 本周提交进度（右下角） -->
+<div class="week-progress" id="weekProgress">
+    <div class="wp-title">本周提交进度</div>
+    <div class="progress" style="height: 8px;">
+        <div class="progress-bar" id="weekProgressBar" style="width: 0%;"></div>
+    </div>
+    <div class="wp-text" id="weekProgressText">-- / -- 人已提交</div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/zh.js"></script>
 <script>
     // ==================== 全局配置 ====================
     const BASE_URL = 'http://localhost:8080';   // 双击打开(file://)时用绝对地址，配 CorsConfig 跨域
@@ -128,10 +343,26 @@
     const PAGE_SIZE = 10;
     let totalWeeks = 0;
     let currentData = [];
+    let myCurrentPage = 1;   // 我的历史周报分页
+    let myTotal = 0;         // 我的历史周报总条数
+    let lastUserId = parseInt(document.getElementById('userIdSelect').value);   // 当前选中的用户（取消切换时还原）
+    let lastLoadedContent = { overallProgress: '', weeklyWorkReport: '', nextWeekPlan: '', other: '' };  // 最近一次加载到表单的内容（用于未保存检测）
 
     // ==================== 用户切换 ====================
-    // 切换用户时重新加载该用户的本周周报
-    document.getElementById('userIdSelect').addEventListener('change', loadCurrentWeek);
+    // 切换用户时重新加载该用户的本周周报；若在个人历史页，也刷新历史
+    // 若表单里有未保存的修改，先提示确认
+    document.getElementById('userIdSelect').addEventListener('change', function() {
+        const dirty = JSON.stringify(currentContentSnapshot()) !== JSON.stringify(lastLoadedContent);
+        if (dirty && !confirm('当前填写的内容尚未保存，切换用户将丢失，确定切换吗？')) {
+            this.value = lastUserId;   // 取消切换，还原选择
+            return;
+        }
+        lastUserId = parseInt(this.value);
+        loadCurrentWeek();
+        if (document.getElementById('tab-myhistory').classList.contains('active')) {
+            loadMyHistory();
+        }
+    });
 
     // ==================== Tab 切换 ====================
     document.querySelectorAll('.tab-header span').forEach(tab => {
@@ -144,15 +375,28 @@
             if (target === 'history') {
                 loadHistory();
             }
+            if (target === 'myhistory') {
+                loadMyHistory();
+            }
             if (target === 'current') {
                 loadCurrentWeek();
             }
+            scrollToTop();   // 切换页面后回到顶部，符合从上往下看的习惯
         });
+    });
+
+    // ==================== 本周提交进度卡（右下角）点击 → 跳转团队视图 ====================
+    document.getElementById('weekProgress').addEventListener('click', function() {
+        const teamTab = document.querySelector('.tab-header span[data-tab="history"]');
+        if (teamTab) teamTab.click();   // 复用 Tab 切换逻辑（自动加载并回到顶部）
     });
 
     // ==================== 加载本周周报 ====================
     function loadCurrentWeek() {
         const userId = getCurrentUserId();
+        // 重新加载时清掉上一轮的最后保存时间（可能是别的用户/上一周的）
+        const savedTimeEl = document.getElementById('draftSavedTime');
+        if (savedTimeEl) savedTimeEl.style.display = 'none';
         fetch(`${BASE_URL}/api/reports/current?userId=${userId}`)   // ← 关键！加上 userId
             .then(res => res.json())
             .then(data => {
@@ -163,14 +407,27 @@
                     document.getElementById('content2').value = r.weeklyWorkReport || '';
                     document.getElementById('content3').value = r.nextWeekPlan || '';
                     document.getElementById('content4').value = r.other || '';
+                    setCurrentWeekStatus(r.status === 'SUBMITTED');
                 } else {
                     document.getElementById('content1').value = '';
                     document.getElementById('content2').value = '';
                     document.getElementById('content3').value = '';
                     document.getElementById('content4').value = '';
+                    setCurrentWeekStatus(false);
                 }
+                // 记录本次加载的内容，用于切换用户时判断是否有未保存修改
+                lastLoadedContent = currentContentSnapshot();
+                updateCounters();
             })
             .catch(() => {});
+    }
+
+    // 更新主表单的提交状态提示（不锁定表单：本周内可反复修改并再次提交）
+    function setCurrentWeekStatus(submitted) {
+        document.getElementById('submitStatus').style.display = submitted ? '' : 'none';
+        document.getElementById('draftHint').textContent = submitted
+            ? '本周已提交过，本周内仍可修改后再次提交'
+            : '点击保存可将当前内容存为草稿';
     }
 
     // ==================== 保存草稿 ====================
@@ -190,17 +447,29 @@
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200) {
-                    alert('保存成功！');
+                    showToast('草稿已保存');
+                    lastLoadedContent = currentContentSnapshot();   // 已保存，不再视为未保存
+                    showDraftSavedTime();   // 显示最后保存时间
                 } else {
-                    alert('保存失败：' + data.message);
+                    showToast('保存失败：' + data.message, 'error');
                 }
             })
-            .catch(() => alert('网络错误'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'));
     }
 
     function getCurrentUserId() {
         const select = document.getElementById('userIdSelect');
         return parseInt(select.value);
+    }
+
+    // 当前表单四个输入框的内容快照（用于未保存修改检测）
+    function currentContentSnapshot() {
+        return {
+            overallProgress: document.getElementById('content1').value,
+            weeklyWorkReport: document.getElementById('content2').value,
+            nextWeekPlan: document.getElementById('content3').value,
+            other: document.getElementById('content4').value
+        };
     }
 
     // ==================== 提交周报 ====================
@@ -221,13 +490,14 @@
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200) {
-                    alert('提交成功！');
+                    showToast('周报提交成功');
                     loadCurrentWeek(); // 刷新状态
+                    loadWeekProgress();
                 } else {
-                    alert('提交失败：' + data.message);
+                    showToast('提交失败：' + data.message, 'error');
                 }
             })
-            .catch(() => alert('网络错误'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'));
     }
 
     // ==================== 加载团队视图（历史周报） ====================
@@ -265,9 +535,19 @@
             container.innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
             return;
         }
+        // 时间显示为 MM-dd HH:mm（周卡片已标明是哪一周，省略年份）
+        const fmtTime = t => {
+            if (!t) return '-';
+            const s = String(t).replace('T', ' ');
+            return s.length >= 16 ? s.slice(5, 16) : s;
+        };
         let html = '';
         for (const group of groups) {
-            html += `<div class="card mb-3"><div class="card-header bg-light fw-bold">${group.weekTitle}</div><div class="card-body p-0"><table class="table table-striped mb-0"><thead><tr><th>成员</th><th>更新时间</th><th>提交状态</th><th>操作</th></tr></thead><tbody>`;
+            const submittedCount = group.members.filter(m => m.status === 'SUBMITTED').length;
+            const totalMembers = group.members.length;
+            const allSubmitted = submittedCount === totalMembers;
+            // 卡片头带提交摘要；固定列宽保证每周卡片列对齐；table-responsive 窄屏横向滚动
+            html += `<div class="card mb-3"><div class="card-header bg-light d-flex justify-content-between align-items-center"><span class="fw-bold">${group.weekTitle}</span><span class="badge ${allSubmitted ? 'bg-success' : 'bg-info'}">${submittedCount}/${totalMembers} 已提交</span></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-striped mb-0" style="table-layout:fixed; min-width:640px;"><colgroup><col style="width:16%"><col style="width:30%"><col style="width:24%"><col style="width:30%"></colgroup><thead><tr><th>成员</th><th>最近更新</th><th>提交状态</th><th>操作</th></tr></thead><tbody>`;
             for (const member of group.members) {
                 const statusMap = {
                     'EDITING': '编辑中',
@@ -275,82 +555,149 @@
                     'NOT_SUBMITTED': '未提交'
                 };
                 const statusText = statusMap[member.status] || member.status;
-                const updateTime = member.updateTime ? member.updateTime.replace('T', ' ') : '-';
-                const canEdit = member.status === 'EDITING' || member.status === 'NOT_SUBMITTED';
-                html += `<tr>
-                    <td>${member.userName}</td>
-                    <td>${updateTime}</td>
-                    <td><span class="badge ${member.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning'}">${statusText}</span></td>
-                    <td>
-                        ${member.reportId ? `<button class="btn btn-sm btn-outline-primary" onclick="viewDetail(${member.reportId})">查看</button>` : '-'}
+                const hasReport = !!member.reportId;
+                let badgeHtml;
+                if (member.status === 'SUBMITTED') {
+                    badgeHtml = `<span class="badge bg-success">${statusText}</span>`;
+                } else if (member.status === 'NOT_SUBMITTED') {
+                    badgeHtml = `<span class="badge bg-danger">${statusText}</span>`;
+                } else {
+                    badgeHtml = `<span class="badge bg-warning">${statusText}</span>`;
+                }
+                // 最近更新：已提交显示提交时间，编辑中显示编辑时间，未交显示 -
+                let timeCell = '-';
+                if (member.status === 'SUBMITTED' && member.submittedAt) {
+                    timeCell = `<span class="text-success">提交于 ${fmtTime(member.submittedAt)}</span>`;
+                } else if (member.status === 'EDITING' && member.updateTime) {
+                    timeCell = `编辑于 ${fmtTime(member.updateTime)}`;
+                }
+                // 没有周报的成员行用灰色弱化显示，突出"缺交"
+                const dim = hasReport ? '' : 'text-muted';
+                // 整行可点击查看详情（仅有关联周报的行）
+                const rowClickable = hasReport ? ' row-clickable' : '';
+                const rowOnclick = hasReport ? ` onclick="viewDetail(${member.reportId})"` : '';
+                html += `<tr class="${rowClickable}"${rowOnclick}>
+                    <td class="${dim}">${member.userName}</td>
+                    <td class="${dim}">${timeCell}</td>
+                    <td>${badgeHtml}</td>
+                    <td class="${dim}">
+                        ${hasReport ? `<button class="btn btn-sm btn-glass" onclick="event.stopPropagation(); viewDetail(${member.reportId})">查看</button>` : '-'}
                     </td>
                 </tr>`;
             }
-            html += `</tbody></table></div></div>`;
+            html += `</tbody></table></div></div></div>`;
         }
         container.innerHTML = html;
     }
 
     // ==================== 查看详情 ====================
+    // 模拟用户映射（与 MockUserService 一致，仅用于展示提交人）
+    const USER_NAMES = { 1: '张三', 2: '李四', 3: '王五', 4: '赵六', 5: '秦七' };
+
+    // HTML 转义，防止周报内容注入标签（XSS）
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function viewDetail(reportId) {
+        const body = document.getElementById('detailBody');
+        const actions = document.getElementById('detailActions');
+        const title = document.getElementById('detailModalTitle');
+
+        // 加载状态
+        body.innerHTML = '<div class="text-center text-muted py-4">加载中...</div>';
+        actions.style.display = 'none';
+        actions.innerHTML = '';
+
         fetch(`${BASE_URL}/api/reports/${reportId}`)
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
                     const r = data.data;
-                    const isEditable = r.status === 'EDITING';
+                    // 前端锁逻辑：仅当该周报属于当前周且尚未提交时允许编辑/提交；过周后只读
+                    const now = new Date();
+                    const diffToMonday = (now.getDay() + 6) % 7;
+                    const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+                    const fmtD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    const withinWeek = r.weekStartDate === fmtD(currentMonday);
+                    const isEditable = withinWeek && r.status === 'EDITING';
+                    const statusText = r.status === 'SUBMITTED' ? '已提交' : '编辑中';
+                    const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
+                    const submitter = USER_NAMES[r.userId] || ('用户' + r.userId);
+                    const submitTime = r.submittedAt ? r.submittedAt.replace('T', ' ').slice(0, 16) : '-';
+                    const weekDate = r.weekStartDate || '-';
+                    title.innerText = r.title || '周报详情';
 
-                    // 构建弹窗内容（可编辑或只读）
+                    // 顶部信息条：周次 / 提交人 / 状态 / 提交时间
                     let bodyHtml = `
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">总体进度</label>
-                        ${isEditable
-                        ? `<textarea class="form-control" id="editOverallProgress" rows="3">${r.overallProgress || ''}</textarea>`
-                        : `<p>${r.overallProgress || '-'}</p>`
-                    }
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">本周进展</label>
-                        ${isEditable
-                        ? `<textarea class="form-control" id="editWeeklyWorkReport" rows="3">${r.weeklyWorkReport || ''}</textarea>`
-                        : `<p>${r.weeklyWorkReport || '-'}</p>`
-                    }
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">下周目标</label>
-                        ${isEditable
-                        ? `<textarea class="form-control" id="editNextWeekPlan" rows="3">${r.nextWeekPlan || ''}</textarea>`
-                        : `<p>${r.nextWeekPlan || '-'}</p>`
-                    }
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">其他补充</label>
-                        ${isEditable
-                        ? `<textarea class="form-control" id="editOther" rows="3">${r.other || ''}</textarea>`
-                        : `<p>${r.other || '-'}</p>`
-                    }
-                    </div>
-                    <hr>
-                    <p><strong>状态：</strong>${r.status === 'SUBMITTED' ? '已提交' : '编辑中'}</p>
-                    <p><strong>提交时间：</strong>${r.submittedAt ? r.submittedAt.replace('T', ' ') : '-'}</p>
-                `;
+                    <div class="detail-meta">
+                        <span class="meta-chip">🗓 ${escapeHtml(weekDate)} 周</span>
+                        <span class="meta-chip">👤 ${escapeHtml(submitter)}</span>
+                        <span class="badge ${badgeClass}">${statusText}</span>
+                        <span class="meta-chip">⏰ 提交：${escapeHtml(submitTime)}</span>
+                    </div>`;
 
-                    // 操作按钮
-                    let actionButtons = '';
+                    // 四个字段（可编辑时带字数限制和计数）
+                    const fields = [
+                        { label: '总体进度', key: 'overallProgress', editId: 'editOverallProgress', counterId: 'editCounter1' },
+                        { label: '本周进展', key: 'weeklyWorkReport', editId: 'editWeeklyWorkReport', counterId: 'editCounter2' },
+                        { label: '下周目标', key: 'nextWeekPlan', editId: 'editNextWeekPlan', counterId: 'editCounter3' },
+                        { label: '其他补充', key: 'other', editId: 'editOther', counterId: 'editCounter4' }
+                    ];
+                    for (const f of fields) {
+                        const val = r[f.key] || '';
+                        if (isEditable) {
+                            bodyHtml += `
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">${f.label}</label>
+                                <div class="position-relative">
+                                    <textarea class="form-control" id="${f.editId}" rows="3" maxlength="1000" oninput="updateDetailCounter('${f.counterId}', this)">${escapeHtml(val)}</textarea>
+                                    <span class="char-counter" id="${f.counterId}">${val.length} / 1000</span>
+                                </div>
+                            </div>`;
+                        } else {
+                            bodyHtml += `
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">${f.label}</label>
+                                <p class="report-field">${escapeHtml(val) || '-'}</p>
+                            </div>`;
+                        }
+                    }
+
+                    body.innerHTML = bodyHtml;
+
+                    // 操作按钮（仅编辑中状态显示）
                     if (isEditable) {
-                        actionButtons = `
-                        <button class="btn btn-primary me-2" onclick="saveDetailEdit(${r.id})">保存修改</button>
-                        <button class="btn btn-success" onclick="submitDetailReport(${r.id})">提交</button>
-                    `;
+                        actions.style.display = '';
+                        actions.innerHTML = `
+                        <button class="btn btn-gradient me-2" onclick="saveDetailEdit(${r.id})">保存修改</button>
+                        <button class="btn btn-gradient" onclick="submitDetailReport(${r.id})">提交</button>`;
                     }
-
-                    document.getElementById('detailBody').innerHTML = bodyHtml;
-                    document.getElementById('detailActions').innerHTML = actionButtons;
 
                     const modal = new bootstrap.Modal(document.getElementById('detailModal'));
                     modal.show();
+                } else {
+                    body.innerHTML = '<div class="text-center text-danger py-4">加载失败：' + escapeHtml(data.message || '数据异常') + '</div>';
                 }
+            })
+            .catch(() => {
+                body.innerHTML = '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
             });
+    }
+
+    // 弹窗编辑字数计数
+    function updateDetailCounter(counterId, textarea) {
+        const counter = document.getElementById(counterId);
+        if (!counter) return;
+        const len = textarea.value.length;
+        counter.textContent = `${len} / 1000`;
+        counter.classList.toggle('over', len > 1000);
     }
 
     // 在弹窗里保存修改
@@ -375,14 +722,15 @@
                     if (modal) {
                         modal.hide();
                     }
-                    alert('保存成功！');
-                    // ★ 刷新列表（让数据更新）
-                    loadHistory();
+                    showToast('修改已保存');
+                    // ★ 刷新当前可见的列表
+                    refreshCurrentList();
+                    loadWeekProgress();
                 } else {
-                    alert('保存失败：' + data.message);
+                    showToast('保存失败：' + data.message, 'error');
                 }
             })
-            .catch(() => alert('网络错误'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'));
     }
 
     // 在弹窗里提交
@@ -408,13 +756,14 @@
                     if (modal) {
                         modal.hide();
                     }
-                    alert('提交成功！');
-                    loadHistory();
+                    showToast('周报提交成功');
+                    refreshCurrentList();
+                    loadWeekProgress();
                 } else {
-                    alert('提交失败：' + data.message);
+                    showToast('提交失败：' + data.message, 'error');
                 }
             })
-            .catch(() => alert('网络错误'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'));
     }
 
     // ==================== 分页 ====================
@@ -426,6 +775,7 @@
         if (currentPage > 1) {
             currentPage--;
             loadHistory();
+            scrollToTop();
         }
     }
 
@@ -434,20 +784,244 @@
         if (currentPage < pages) {
             currentPage++;
             loadHistory();
+            scrollToTop();
         }
+    }
+
+    // 跳转到指定页：type = 'team'（团队视图）/'my'（我的存档）
+    function jumpToPage(input, type) {
+        const val = parseInt(input.value);
+        const isMy = type === 'my';
+        const total = isMy ? myTotal : totalWeeks;
+        const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        if (isNaN(val) || val < 1) {
+            input.value = '';
+            showToast('请输入有效的页码', 'error');
+            return;
+        }
+        if (val > pages) {
+            input.value = '';
+            showToast('页码超出范围（共 ' + pages + ' 页）', 'error');
+            return;
+        }
+        if (isMy) {
+            myCurrentPage = val;
+            loadMyHistory();
+        } else {
+            currentPage = val;
+            loadHistory();
+        }
+        input.value = '';
+        scrollToTop();
     }
 
     function resetSearch() {
         document.getElementById('startDate').value = '';
         document.getElementById('endDate').value = '';
         currentPage = 1;
-        document.getElementById('historyContainer').innerHTML = '<div class="text-center text-muted py-4">请选择日期范围后搜索</div>';
-        document.getElementById('totalBadge').innerText = '共 0 周';
-        document.getElementById('pageInfo').innerText = '第 1 / 1 页';
+        loadHistory();   // 清空条件后直接查询全部历史，不需要再强制选日期
+    }
+
+    // ==================== 我的历史周报（个人） ====================
+    function loadMyHistory() {
+        const userId = getCurrentUserId();
+        let url = `${BASE_URL}/api/reports/history?userId=${userId}&pageNo=${myCurrentPage}&pageSize=${PAGE_SIZE}`;
+
+        const start = document.getElementById('startDateMy').value;
+        const end = document.getElementById('endDateMy').value;
+
+        if (start) url += `&startDate=${start}`;
+        if (end) url += `&endDate=${end}`;
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data) {
+                    const records = data.data.records || [];
+                    myTotal = data.data.total || 0;
+                    renderMyHistory(records);
+                    updateMyPagination(data.data.current, data.data.pages);
+                    document.getElementById('totalBadgeMy').innerText = '共 ' + myTotal + ' 条';
+                } else {
+                    document.getElementById('myHistoryContainer').innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
+                }
+            })
+            .catch(() => {
+                document.getElementById('myHistoryContainer').innerHTML = '<div class="text-center text-danger py-4">加载失败</div>';
+            });
+    }
+
+    function renderMyHistory(reports) {
+        const container = document.getElementById('myHistoryContainer');
+        if (!reports || reports.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
+            return;
+        }
+        const statusMap = {
+            'EDITING': '编辑中',
+            'SUBMITTED': '已提交'
+        };
+        let html = '<table class="table table-striped align-middle mb-0"><thead><tr><th>标题</th><th>开始日期</th><th>状态</th><th>提交时间</th><th>操作</th></tr></thead><tbody>';
+        for (const r of reports) {
+            const statusText = statusMap[r.status] || r.status;
+            const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
+            const submitTime = r.submittedAt ? r.submittedAt.replace('T', ' ') : '-';
+            html += `<tr>
+                <td>${r.title || '-'}</td>
+                <td>${r.weekStartDate || '-'}</td>
+                <td><span class="badge ${badgeClass}">${statusText}</span></td>
+                <td>${submitTime}</td>
+                <td><button class="btn btn-sm btn-glass" onclick="viewDetail(${r.id})">查看</button></td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    function updateMyPagination(current, pages) {
+        document.getElementById('pageInfoMy').innerText = `第 ${current || 1} / ${pages || 1} 页`;
+    }
+
+    function prevMyPage() {
+        if (myCurrentPage > 1) {
+            myCurrentPage--;
+            loadMyHistory();
+            scrollToTop();
+        }
+    }
+
+    function nextMyPage() {
+        const pages = Math.ceil(myTotal / PAGE_SIZE);
+        if (myCurrentPage < pages) {
+            myCurrentPage++;
+            loadMyHistory();
+            scrollToTop();
+        }
+    }
+
+    function resetMySearch() {
+        document.getElementById('startDateMy').value = '';
+        document.getElementById('endDateMy').value = '';
+        myCurrentPage = 1;
+        loadMyHistory();   // 无日期则查询全部历史
+    }
+
+    // 刷新当前可见的列表（个人历史 或 团队视图）
+    function refreshCurrentList() {
+        if (document.getElementById('tab-myhistory').classList.contains('active')) {
+            loadMyHistory();
+        } else {
+            loadHistory();
+        }
+    }
+
+    // ==================== 工具函数 ====================
+    // 切换页面/翻页后回到页面顶部（用户习惯从上往下看）
+    function scrollToTop() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // 在按钮旁显示草稿最后保存时间
+    function showDraftSavedTime() {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        const el = document.getElementById('draftSavedTime');
+        if (el) {
+            el.textContent = '草稿最后保存：' + timeStr;
+            el.style.display = '';
+        }
+    }
+
+    // 右上角 Toast 提示（带时间戳）
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        const now = new Date();
+        const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const item = document.createElement('div');
+        item.className = `toast-item ${type}`;
+        const icon = type === 'success' ? '✅' : '❌';
+        item.innerHTML = `<div>${icon} ${message}</div><div class="toast-time">${time}</div>`;
+        container.appendChild(item);
+        setTimeout(() => {
+            item.classList.add('toast-out');
+            setTimeout(() => item.remove(), 300);
+        }, 3000);
+    }
+
+    // 标题下方的本周日期提示
+    function updateWeekSubtitle() {
+        const now = new Date();
+        const diffToMonday = (now.getDay() + 6) % 7;   // 距本周一的天数
+        const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+        const friday = new Date(monday);
+        friday.setDate(monday.getDate() + 4);
+        const fmt = d => `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+        const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const daysToFriday = Math.round((friday - nowDate) / 86400000);
+        let hint;
+        if (daysToFriday > 0) hint = `距离周五提交还有 ${daysToFriday} 天`;
+        else if (daysToFriday === 0) hint = '今天是提交日，记得提交';
+        else hint = '本周已过提交时间';
+        document.getElementById('weekSubtitle').innerText = `本周：${fmt(monday)} ~ ${fmt(friday)} · ${hint}`;
+    }
+
+    // 右下角团队本周提交进度
+    function loadWeekProgress() {
+        const now = new Date();
+        const diffToMonday = (now.getDay() + 6) % 7;
+        const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+        const friday = new Date(monday);
+        friday.setDate(monday.getDate() + 4);
+        const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        fetch(`${BASE_URL}/api/reports/team?startDate=${fmtDate(monday)}&endDate=${fmtDate(friday)}&pageNo=1&pageSize=50`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data && data.data.records && data.data.records.length > 0) {
+                    const members = data.data.records[0].members || [];
+                    const total = members.length;
+                    const submitted = members.filter(m => m.status === 'SUBMITTED').length;
+                    const pct = total > 0 ? Math.round(submitted / total * 100) : 0;
+                    document.getElementById('weekProgressBar').style.width = pct + '%';
+                    document.getElementById('weekProgressText').innerText = `${submitted} / ${total} 人已提交`;
+                }
+            })
+            .catch(() => {});
+    }
+
+    // 字数计数
+    function updateCounters() {
+        for (let i = 1; i <= 4; i++) {
+            const ta = document.getElementById('content' + i);
+            const counter = document.getElementById('counter' + i);
+            if (!ta || !counter) continue;
+            const len = ta.value.length;
+            counter.textContent = `${len} / 1000`;
+            counter.classList.toggle('over', len > 1000);
+        }
+    }
+
+    function initCharCounters() {
+        for (let i = 1; i <= 4; i++) {
+            const ta = document.getElementById('content' + i);
+            if (ta) {
+                ta.addEventListener('input', updateCounters);
+            }
+        }
+        updateCounters();
     }
 
     // ==================== 初始化 ====================
     window.onload = function() {
+        // 日期选择器：flatpickr，日历弹窗 + yyyy-MM-dd 显示
+        if (window.flatpickr) {
+            document.querySelectorAll('#startDate, #endDate, #startDateMy, #endDateMy').forEach(el => {
+                flatpickr(el, { dateFormat: 'Y-m-d', allowInput: true, locale: 'zh' });
+            });
+        }
+        updateWeekSubtitle();
+        loadWeekProgress();
+        initCharCounters();
         loadCurrentWeek();
         // 默认显示本周周报
         document.querySelector('.tab-header span.active').click();

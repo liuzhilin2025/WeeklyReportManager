@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.rmi.MarshalledObject;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -169,27 +170,37 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     }
 
 
+    // 个人历史周报
     @Override
-    public Page<WeeklyReport> getReports(Integer pageNo, Integer pageSize, LocalDate start, LocalDate end) {
-        if ((start != null && end == null) || (start == null && end != null)) {
+    public Page<WeeklyReport> getReports(Long userId, Integer pageNo, Integer pageSize, LocalDate startDate, LocalDate endDate) {
+        if (userId == null) {
+            log.error("userId不能为空");
+            throw new IllegalArgumentException("userId不能为空");
+        }
+        if (pageNo == null || pageNo < 1) {
+            pageNo = 1;
+        }
+        if (pageSize == null || pageSize < 1 || pageSize > 100) {
+            pageSize = 10;
+        }
+        if ((startDate != null && endDate == null) || (startDate == null && endDate != null)) {
             throw new IllegalArgumentException("开始时间和结束时间必须同时为空或同时不为空");
         }
-        if (start != null && end != null && start.isAfter(end)) {
-            throw new IllegalArgumentException("开始时间不能大于结束时间");
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("开始时间不能晚于结束时间");
         }
-        Page<WeeklyReport> page = new Page<>(pageNo, pageSize);
+
         QueryWrapper<WeeklyReport> wrapper = new QueryWrapper<>();
-
-        if (start != null) {
-            log.debug("查询条件：{}", wrapper.getCustomSqlSegment());
-            wrapper.ge("week_start_date", start);
+        wrapper.eq("user_id", userId);
+        if (startDate != null) {
+            wrapper.ge("week_start_date", startDate);
         }
-
-        if (end != null) {
-            log.debug("查询条件：{}", wrapper.getCustomSqlSegment());
-            wrapper.le("week_start_date", end);
+        if (endDate != null) {
+            wrapper.le("week_start_date", endDate);
         }
         wrapper.orderByDesc("week_start_date");
+
+        Page<WeeklyReport> page = new Page<>(pageNo, pageSize);
         return weeklyReportMapper.selectPage(page, wrapper);
     }
 
@@ -280,6 +291,13 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
         // 1. 获取所有成员
         List<MockUserService.MockUser> allMembers = mockUserService.getAllMembers();
 
+        if (pageNo == null || pageNo < 1) {
+            pageNo = 1;
+        }
+        if (pageSize == null || pageSize < 1 || pageSize > 100) {
+            pageSize = 10;
+        }
+
         // 2. 校验日期参数
         if ((startDate != null && endDate == null) || (startDate == null && endDate != null)) {
             throw new IllegalArgumentException("开始时间和结束时间必须同时为空或同时不为空");
@@ -344,10 +362,12 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
                     member.setReportId(report.getId());
                     member.setStatus(report.getStatus());
                     member.setUpdateTime(report.getUpdatedAt());
+                    member.setSubmittedAt(report.getSubmittedAt());
                 } else {
                     member.setReportId(null);
                     member.setStatus("NOT_SUBMITTED");
                     member.setUpdateTime(null);
+                    member.setSubmittedAt(null);
                 }
                 memberList.add(member);
             }

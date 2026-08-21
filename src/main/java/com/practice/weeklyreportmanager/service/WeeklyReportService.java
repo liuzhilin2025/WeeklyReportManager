@@ -11,7 +11,7 @@ public interface WeeklyReportService {
     WeeklyReport getCurrentWeekReport(Long userId);
     WeeklyReport saveWeeklyReport(WeeklyReportDTO dto, Long userId);
     WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId);
-    Page<WeeklyReport> getReports(Integer pageNo, Integer pageSize, LocalDate start, LocalDate end);
+    Page<WeeklyReport> getReports(Long userId,Integer pageNo, Integer pageSize, LocalDate startDate, LocalDate endDate);
     WeeklyReport getReportById(Long id);
     WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id);
     WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id);
