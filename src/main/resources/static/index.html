@@ -31,13 +31,14 @@
         /* 顶部品牌色条：黑→红渐变 */
         .container::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #111114, #ff2840); }
         .page-title { font-weight: 700; }
+        .logo { display: block; max-width: 100%; height: auto; }
         .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .22em; color: var(--accent); text-transform: uppercase; margin-bottom: 6px; }
         .gradient-text { background: linear-gradient(90deg, #111114 0%, #ff2840 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
         .page-subtitle { color: var(--muted); }
         .user-switch { width: 160px; }
 
         /* Tab */
-        .tab-header { display: flex; gap: 8px; border-bottom: 2px solid var(--line); margin-bottom: 28px; }
+        .tab-header { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 2px solid var(--line); margin-bottom: 28px; }
         .tab-header span { cursor: pointer; font-size: 15px; font-weight: 500; color: #555; padding: 8px 18px; border-radius: 999px; transition: all .2s; }
         .tab-header span:hover { color: var(--accent); background: #fff5f6; }
         .tab-header span.active { color: #fff; background: var(--ink); box-shadow: 0 2px 8px rgba(17,17,20,0.18); }
@@ -48,6 +49,7 @@
         /* 表单卡片 */
         .form-card { background: var(--bg-soft); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 20px; }
         .form-card .form-item + .form-item { margin-top: 18px; }
+        .form-item .form-label { margin-bottom: 6px; }
 
         /* 筛选栏 */
         .filter-bar { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
@@ -138,6 +140,12 @@
         .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay, .flatpickr-day.flatpickr-disabled { color: #c9c4bc; }
         .flatpickr-months .flatpickr-prev-month:hover svg, .flatpickr-months .flatpickr-next-month:hover svg { fill: var(--accent); }
         .flatpickr-time input:hover, .flatpickr-time .flatpickr-am-pm:hover { background: #fff5f6; }
+
+        /* 响应式：小屏缩小页面留白（进度卡保持显示） */
+        @media (max-width: 576px) {
+            body { padding: 12px; }
+            .container { padding: 36px 16px 150px; border-radius: 12px; }
+        }
     </style>
 </head>
 <body>
@@ -146,8 +154,12 @@
     <!-- 页面头部：标题 + 用户切换 -->
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
         <div>
-            <div class="eyebrow">WEEKLY REPORT</div>
-            <h4 class="page-title mb-1"><span class="gradient-text">我的周报</span></h4>
+            <svg class="logo" width="240" height="56" viewBox="0 0 240 56" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="周报 WEEKLY REPORT">
+                <rect x="0" y="0" width="240" height="56" rx="11" fill="#111114"/>
+                <circle cx="24" cy="28" r="13" fill="#ff2840"/>
+                <text x="46" y="37" font-size="24" font-weight="700" fill="#ffffff" font-family="'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif">周报</text>
+                <text x="104" y="37" font-size="12" font-weight="600" letter-spacing="2.5" fill="#f1f1f3" font-family="'Helvetica Neue',Arial,sans-serif">WEEKLY REPORT</text>
+            </svg>
             <div class="page-subtitle small" id="weekSubtitle">本周：--</div>
         </div>
         <div class="d-flex align-items-center gap-2">
@@ -249,7 +261,7 @@
         </div>
 
         <!-- 分页 -->
-        <div class="pagination-bar d-flex justify-content-between align-items-center mt-3">
+        <div class="pagination-bar d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
             <span id="pageInfo" class="text-muted">第 1 / 1 页</span>
             <div class="d-flex align-items-center gap-2">
                 <button class="btn btn-sm btn-glass" onclick="prevPage()">上一页</button>
@@ -290,7 +302,7 @@
         </div>
 
         <!-- 分页 -->
-        <div class="pagination-bar d-flex justify-content-between align-items-center mt-3">
+        <div class="pagination-bar d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
             <span id="pageInfoMy" class="text-muted">第 1 / 1 页</span>
             <div class="d-flex align-items-center gap-2">
                 <button class="btn btn-sm btn-glass" onclick="prevMyPage()">上一页</button>
