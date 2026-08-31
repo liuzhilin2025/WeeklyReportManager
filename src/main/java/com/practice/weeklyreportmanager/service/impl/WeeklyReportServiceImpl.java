@@ -12,6 +12,7 @@ import com.practice.weeklyreportmanager.vo.TeamMemberReportVO;
 import com.practice.weeklyreportmanager.vo.WeekGroupVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +58,17 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
         if (dto.getOther() != null && dto.getOther().length() > 1000) {
             throw new IllegalArgumentException("其他补充不能超过1000字");
         }
+    }
+
+    /**
+     * 判断某周周报是否属于当前周。
+     * 只有本周的周报允许编辑/提交；过周后一律只读。
+     */
+    private boolean isCurrentWeek(LocalDate weekStartDate) {
+        if (weekStartDate == null) {
+            return false;
+        }
+        return weekStartDate.equals(DateUtils.getMondayOfWeek(LocalDate.now()));
     }
 
     // 1. 获取当前周周报
@@ -227,8 +239,9 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
             throw new IllegalArgumentException("周报不存在");
         }
 
-        if ("SUBMITTED".equals(existing.getStatus())) {
-            throw new IllegalArgumentException("已经提交过的周报不允许再更改");
+        // 只有本周的周报允许修改；过周后一律只读
+        if (!isCurrentWeek(existing.getWeekStartDate())) {
+            throw new IllegalArgumentException("只能修改本周的周报");
         }
 
         validateContent(dto);
@@ -253,8 +266,9 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
             throw new IllegalArgumentException("周报不存在");
         }
 
-        if ("SUBMITTED".equals(existing.getStatus())) {
-            throw new IllegalArgumentException("该周报已经提交过了");
+        // 只有本周的周报允许提交；过周后一律只读
+        if (!isCurrentWeek(existing.getWeekStartDate())) {
+            throw new IllegalArgumentException("只能提交本周的周报");
         }
 
         LocalDate currentDate = LocalDate.now();
@@ -287,6 +301,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
 
     // 7. 查看所有成员的周报填写情况
     @Override
+    @Cacheable(value = "teamView", key = "(#startDate != null ? #startDate.toString() : 'null') + '_' + (#endDate != null ? #endDate.toString() : 'null') + '_' + #pageNo + '_' + #pageSize")
     public Page<WeekGroupVO> getTeamViewReports(LocalDate startDate, LocalDate endDate, Integer pageNo, Integer pageSize) {
         // 1. 获取所有成员
         List<MockUserService.MockUser> allMembers = mockUserService.getAllMembers();
@@ -385,7 +400,8 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
         if (start >= total) { // 当请求的页码超出总页数，返回空列表
             pageList = new ArrayList<>();   // 空页，而不是报错
         } else {
-            pageList = groupList.subList(start, end);
+            // 拷贝成 ArrayList，避免 subList 返回的 ArrayList$SubList 无法被 Redis 反序列化
+            pageList = new ArrayList<>(groupList.subList(start, end));
         }
 
         // 7. 组装分页结果

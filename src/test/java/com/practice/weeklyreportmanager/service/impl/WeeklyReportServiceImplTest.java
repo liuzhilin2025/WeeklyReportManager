@@ -165,13 +165,39 @@ class WeeklyReportServiceImplTest {
     }
 
     @Test
-    void updateWeeklyReport_shouldThrow_whenAlreadySubmitted() {
+    void updateWeeklyReport_shouldThrow_whenPastWeekSubmitted() {
         existingReport.setStatus("SUBMITTED");
         when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
 
-        assertThrows(IllegalArgumentException.class,
-                () -> weeklyReportService.updateWeeklyReport(validDto, 1L));
+        // 固定"今天"为报告所在周的下一周，模拟过周后已提交即锁定
+        LocalDate nextWeekMonday = LocalDate.of(2026, 8, 24);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> weeklyReportService.updateWeeklyReport(validDto, 1L));
+        }
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
+    }
+
+    @Test
+    void updateWeeklyReport_shouldAllow_whenSubmittedButCurrentWeek() {
+        existingReport.setStatus("SUBMITTED");
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+        when(weeklyReportMapper.updateById(any(WeeklyReport.class))).thenReturn(1);
+
+        // 固定"今天"为报告所在周内的周五，本周内已提交仍允许修改
+        LocalDate friday = LocalDate.of(2026, 8, 21);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(friday);
+
+            WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L);
+
+            assertNotNull(result);
+            assertEquals("SUBMITTED", result.getStatus());
+            assertEquals("总体进度：完成需求分析和数据库设计", result.getOverallProgress());
+            verify(weeklyReportMapper, times(1)).updateById(any(WeeklyReport.class));
+        }
     }
 
     @Test
@@ -179,12 +205,34 @@ class WeeklyReportServiceImplTest {
         when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
         when(weeklyReportMapper.updateById(any(WeeklyReport.class))).thenReturn(1);
 
-        WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L);
+        // 固定"今天"为报告所在周内的日期，本周内的草稿允许修改
+        LocalDate inWeek = LocalDate.of(2026, 8, 21);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(inWeek);
 
-        assertNotNull(result);
-        assertEquals("EDITING", result.getStatus());
-        assertEquals("总体进度：完成需求分析和数据库设计", result.getOverallProgress());
-        verify(weeklyReportMapper, times(1)).updateById(any(WeeklyReport.class));
+            WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L);
+
+            assertNotNull(result);
+            assertEquals("EDITING", result.getStatus());
+            assertEquals("总体进度：完成需求分析和数据库设计", result.getOverallProgress());
+            verify(weeklyReportMapper, times(1)).updateById(any(WeeklyReport.class));
+        }
+    }
+
+    @Test
+    void updateWeeklyReport_shouldThrow_whenPastWeekEditing() {
+        existingReport.setStatus("EDITING");
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+
+        // 固定"今天"为报告所在周的下一周，过周的周报即使是草稿也只读
+        LocalDate nextWeekMonday = LocalDate.of(2026, 8, 24);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> weeklyReportService.updateWeeklyReport(validDto, 1L));
+        }
+        verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
     }
 
     // ==================== 5. 查询历史周报（个人视图） ====================
@@ -211,6 +259,58 @@ class WeeklyReportServiceImplTest {
     }
 
     // ==================== 7. 提交历史周报 ====================
+    @Test
+    void submitHistoryWeekly_shouldThrow_whenPastWeekEditing() {
+        existingReport.setStatus("EDITING");
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+
+        // 固定"今天"为报告所在周的下一周，过周的周报即使是草稿也不能提交
+        LocalDate nextWeekMonday = LocalDate.of(2026, 8, 24);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> weeklyReportService.submitHistoryWeekly(validDto, 1L));
+        }
+        verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
+    }
+
+    @Test
+    void submitHistoryWeekly_shouldThrow_whenAlreadySubmittedPastWeek() {
+        existingReport.setStatus("SUBMITTED");
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+
+        // 固定"今天"为报告所在周的下一周，过周后已提交不能再提交
+        LocalDate nextWeekMonday = LocalDate.of(2026, 8, 24);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> weeklyReportService.submitHistoryWeekly(validDto, 1L));
+        }
+        verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
+    }
+
+    @Test
+    void submitHistoryWeekly_shouldAllow_whenSubmittedButCurrentWeek() {
+        existingReport.setStatus("SUBMITTED");
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+        when(weeklyReportMapper.updateById(any(WeeklyReport.class))).thenReturn(1);
+
+        // 固定"今天"为报告所在周内的周五，本周内已提交仍允许重新提交
+        LocalDate friday = LocalDate.of(2026, 8, 21);
+        try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
+            mocked.when(LocalDate::now).thenReturn(friday);
+
+            WeeklyReport result = weeklyReportService.submitHistoryWeekly(validDto, 1L);
+
+            assertNotNull(result);
+            assertEquals("SUBMITTED", result.getStatus());
+            assertNotNull(result.getSubmittedAt());
+            verify(weeklyReportMapper, times(1)).updateById(any(WeeklyReport.class));
+        }
+    }
+
     // ==================== 8. 团队视图 ====================
     @Test
     void getTeamViewReports_shouldReturnGroupedData() {

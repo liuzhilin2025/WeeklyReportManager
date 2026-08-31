@@ -12,17 +12,17 @@
             --ink: #111114;       /* 主黑 */
             --accent: #ff2840;    /* 主红 */
             --accent-dark: #e02237;
-            --line: #ece7e0;      /* 暖色分隔线 / 边框 */
+            --line: #e5e7eb;      /* 冷灰分隔线 / 边框 */
             --muted: #6b6b76;     /* 次要文字 */
-            --bg-warm: #f8f5ef;   /* 暖白页面背景 */
-            --bg-soft: #faf7f2;   /* 暖浅面板（卡片/表头） */
+            --bg-cool: #ffffff;   /* 冷白页面背景 */
+            --bg-soft: #f5f6fa;   /* 冷浅面板（卡片/表头） */
             --radius: 10px;
         }
         body {
             background:
-                radial-gradient(1100px 420px at 85% -8%, rgba(255,40,64,0.06), transparent 60%),
-                radial-gradient(900px 360px at 5% -10%, rgba(17,17,20,0.05), transparent 60%),
-                var(--bg-warm);
+                radial-gradient(1100px 420px at 85% -8%, rgba(255,40,64,0.05), transparent 60%),
+                radial-gradient(900px 360px at 5% -10%, rgba(17,17,20,0.03), transparent 60%),
+                var(--bg-cool);
             padding: 24px; min-height: 100vh; color: var(--ink);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         }
@@ -39,7 +39,7 @@
 
         /* Tab */
         .tab-header { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 2px solid var(--line); margin-bottom: 28px; }
-        .tab-header span { cursor: pointer; font-size: 15px; font-weight: 500; color: #555; padding: 8px 18px; border-radius: 999px; transition: all .2s; }
+        .tab-header span { cursor: pointer; font-size: 15px; font-weight: 500; color: #444; padding: 8px 18px; border-radius: 999px; transition: all .2s; }
         .tab-header span:hover { color: var(--accent); background: #fff5f6; }
         .tab-header span.active { color: #fff; background: var(--ink); box-shadow: 0 2px 8px rgba(17,17,20,0.18); }
         .tab-header span.active::after { display: none; }
@@ -60,6 +60,10 @@
         .table td { vertical-align: middle; }
         .table tbody tr.row-clickable { cursor: pointer; }
         .table tbody tr.row-clickable:hover { background: rgba(255,40,64,0.08); }
+        /* 团队视图：未提交成员行高亮（浅红底 + 左侧 4px 红条），一眼看出缺交 */
+        .table tbody tr.row-missed, .table tbody tr.row-missed > * { background-color: #ffe9eb; }
+        .table tbody tr.row-missed td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+        .table tbody tr.row-missed:hover, .table tbody tr.row-missed:hover > * { background-color: #ffdfe2; }
         /* 第一列（成员/标题）和最后一列留出左右呼吸空间，避免贴边 */
         .table th:first-child, .table td:first-child { padding-left: 16px; }
         .table th:last-child, .table td:last-child { padding-right: 16px; }
@@ -70,15 +74,18 @@
         .card .card-header { background: var(--bg-soft) !important; border-bottom: 1px solid var(--line); }
 
         /* 输入控件 */
-        .form-control { background: #fff; border: 1px solid #ddd; }
+        .form-control { background: #fff; border: 1px solid #cbd5e1; }
         .form-control:focus { background: #fff; border-color: var(--accent); box-shadow: 0 0 0 0.2rem rgba(255,40,64,0.1); }
-        .form-select { background-color: #fff; border: 1px solid #ddd; }
+        .form-select { background-color: #fff; border: 1px solid #cbd5e1; }
 
         /* 按钮 */
         .btn-gradient { background: linear-gradient(180deg, #ff5a6b 0%, #ff2840 60%, #e02237 100%); border: none; color: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(255,40,64,0.28); transition: all .2s; }
         .btn-gradient:hover, .btn-gradient:focus { color: #fff; background: linear-gradient(180deg, #ff2840 0%, #d91f34 100%); box-shadow: 0 6px 18px rgba(255,40,64,0.35); transform: translateY(-1px); }
         .btn-glass { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
         .btn-glass:hover { background: #fff5f6; color: var(--accent); border-color: var(--accent); }
+        /* 禁用态：非周五不可提交 */
+        .btn-gradient:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+        .btn-gradient:disabled:hover, .btn-gradient:disabled:focus { transform: none; box-shadow: none; }
 
         /* 分页栏 */
         .pagination-bar { border-top: 1px solid var(--line); padding-top: 12px; }
@@ -117,20 +124,24 @@
 
         /* 详情弹窗字段 */
         .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-        .detail-meta .meta-chip { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; color: #333; }
+        .detail-meta .meta-chip { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; color: #2c3444; }
         .detail-meta .badge { align-self: center; }
         .report-field { white-space: pre-wrap; word-break: break-word; }
+        /* 详情弹窗只读字段：浅色卡片分组 */
+        .detail-field { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
+        .detail-field .field-label { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+        .detail-field .report-field { margin: 0; }
 
-        /* 状态徽章：黑红体系（覆盖 Bootstrap 颜色工具类） */
-        .bg-success { background-color: var(--accent) !important; color: #fff !important; }        /* 已提交 = 主红 */
+        /* 状态徽章：语义色（绿=已提交 / 描边=编辑中 / 红=未提交） */
+        .bg-success { background-color: #059669 !important; color: #fff !important; }        /* 已提交 = 绿 */
         .bg-warning { background-color: #fff !important; color: var(--ink) !important; border: 1px solid var(--ink); }  /* 编辑中 = 黑描边 */
-        .bg-danger { background-color: #f0f0f0 !important; color: var(--muted) !important; }       /* 未提交 = 中性灰 */
+        .bg-danger { background-color: var(--accent) !important; color: #fff !important; }   /* 未提交 = 红 */
         .bg-info { background-color: var(--bg-soft) !important; color: var(--ink) !important; }    /* 计数徽章 = 中性 */
 
-        /* 已提交时间文字 = 主红 */
-        .text-success { color: var(--accent) !important; }
+        /* 已提交时间文字 = 绿（与"已提交"徽章一致） */
+        .text-success { color: #059669 !important; }
 
-        /* flatpickr 日期选择器（黑红暖主题） */
+        /* flatpickr 日期选择器（黑红主题） */
         .flatpickr-calendar { border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(17,17,20,0.12); }
         .flatpickr-months .flatpickr-month, .flatpickr-current-month { color: var(--ink); }
         .flatpickr-weekday { color: var(--ink); font-weight: 600; }
@@ -154,11 +165,19 @@
     <!-- 页面头部：标题 + 用户切换 -->
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
         <div>
-            <svg class="logo" width="240" height="56" viewBox="0 0 240 56" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="周报 WEEKLY REPORT">
-                <rect x="0" y="0" width="240" height="56" rx="11" fill="#111114"/>
-                <circle cx="24" cy="28" r="13" fill="#ff2840"/>
-                <text x="46" y="37" font-size="24" font-weight="700" fill="#ffffff" font-family="'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif">周报</text>
-                <text x="104" y="37" font-size="12" font-weight="600" letter-spacing="2.5" fill="#f1f1f3" font-family="'Helvetica Neue',Arial,sans-serif">WEEKLY REPORT</text>
+            <svg class="logo" width="272" height="56" viewBox="0 0 272 56" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="周报 WEEKLY REPORT">
+                <rect x="0" y="0" width="272" height="56" rx="11" fill="#111114"/>
+                <!-- 图标：小圆 + 红圆（仿图片样式，3x3 正方形排列） -->
+                <circle cx="15" cy="17" r="3.5" fill="#f1f1f3"/>
+                <circle cx="26" cy="17" r="3.5" fill="#f1f1f3"/>
+                <circle cx="37" cy="17" r="3.5" fill="#f1f1f3"/>
+                <circle cx="15" cy="28" r="3.5" fill="#f1f1f3"/>
+                <circle cx="26" cy="28" r="4" fill="#ff2840"/>
+                <circle cx="15" cy="39" r="3.5" fill="#f1f1f3"/>
+                <circle cx="26" cy="39" r="3.5" fill="#f1f1f3"/>
+                <circle cx="37" cy="39" r="3.5" fill="#f1f1f3"/>
+                <text x="52" y="37" font-size="24" font-weight="700" fill="#ffffff" font-family="'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif">周报</text>
+                <text x="110" y="37" font-size="12" font-weight="600" letter-spacing="2.5" fill="#f1f1f3" font-family="'Helvetica Neue',Arial,sans-serif">WEEKLY REPORT</text>
             </svg>
             <div class="page-subtitle small" id="weekSubtitle">本周：--</div>
         </div>
@@ -194,7 +213,7 @@
             <div id="reportActions" class="d-flex flex-column align-items-end gap-1">
                 <div class="d-flex gap-2">
                     <button class="btn btn-glass" onclick="saveDraft()">保存草稿</button>
-                    <button class="btn btn-gradient" onclick="submitReport()">保存并提交</button>
+                    <button class="btn btn-gradient" onclick="submitReport()" id="btnSubmitCurrent">保存并提交</button>
                 </div>
                 <div class="text-muted small" id="draftSavedTime" style="display:none;"></div>
             </div>
@@ -350,7 +369,8 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/zh.js"></script>
 <script>
     // ==================== 全局配置 ====================
-    const BASE_URL = 'http://localhost:8080';   // 双击打开(file://)时用绝对地址，配 CorsConfig 跨域
+    // 同源部署时走相对路径（前后端由 Spring Boot 一起提供）；file:// 双击打开时回退到本地后端地址（配 CorsConfig 跨域）
+    const BASE_URL = location.protocol === 'file:' ? 'http://localhost:8080' : '';
     let currentPage = 1;
     const PAGE_SIZE = 10;
     let totalWeeks = 0;
@@ -442,6 +462,20 @@
             : '点击保存可将当前内容存为草稿';
     }
 
+    // ==================== 提交可用性（仅周五可提交） ====================
+    function isFriday() {
+        return new Date().getDay() === 5;
+    }
+
+    // 非周五时禁用"提交"按钮，提前告知用户
+    function updateSubmitButtons() {
+        const btn = document.getElementById('btnSubmitCurrent');
+        if (!btn) return;
+        const can = isFriday();
+        btn.disabled = !can;
+        btn.textContent = can ? '保存并提交' : '仅周五可提交';
+    }
+
     // ==================== 保存草稿 ====================
     function saveDraft() {
         const userId = getCurrentUserId();
@@ -486,7 +520,7 @@
 
     // ==================== 提交周报 ====================
     function submitReport() {
-        if (!confirm('确定提交本周周报吗？提交后将不可编辑。')) return;
+        if (!confirm('确定提交本周周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。')) return;
         const userId = getCurrentUserId();
         const payload = {
             overallProgress: document.getElementById('content1').value,
@@ -583,16 +617,15 @@
                 } else if (member.status === 'EDITING' && member.updateTime) {
                     timeCell = `编辑于 ${fmtTime(member.updateTime)}`;
                 }
-                // 没有周报的成员行用灰色弱化显示，突出"缺交"
-                const dim = hasReport ? '' : 'text-muted';
-                // 整行可点击查看详情（仅有关联周报的行）
-                const rowClickable = hasReport ? ' row-clickable' : '';
+                // 未提交成员行高亮（浅红底 + 左侧红条），一眼看出缺交
+                const missed = !hasReport;
+                const rowExtra = hasReport ? 'row-clickable' : 'row-missed';
                 const rowOnclick = hasReport ? ` onclick="viewDetail(${member.reportId})"` : '';
-                html += `<tr class="${rowClickable}"${rowOnclick}>
-                    <td class="${dim}">${member.userName}</td>
-                    <td class="${dim}">${timeCell}</td>
+                html += `<tr class="${rowExtra}"${rowOnclick}>
+                    <td>${escapeHtml(member.userName)}</td>
+                    <td>${timeCell}</td>
                     <td>${badgeHtml}</td>
-                    <td class="${dim}">
+                    <td>
                         ${hasReport ? `<button class="btn btn-sm btn-glass" onclick="event.stopPropagation(); viewDetail(${member.reportId})">查看</button>` : '-'}
                     </td>
                 </tr>`;
@@ -632,13 +665,13 @@
             .then(data => {
                 if (data.code === 200 && data.data) {
                     const r = data.data;
-                    // 前端锁逻辑：仅当该周报属于当前周且尚未提交时允许编辑/提交；过周后只读
+                    // 前端锁逻辑：只有本周的周报允许编辑/提交；过周后一律只读
                     const now = new Date();
                     const diffToMonday = (now.getDay() + 6) % 7;
                     const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
                     const fmtD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                     const withinWeek = r.weekStartDate === fmtD(currentMonday);
-                    const isEditable = withinWeek && r.status === 'EDITING';
+                    const isEditable = withinWeek;
                     const statusText = r.status === 'SUBMITTED' ? '已提交' : '编辑中';
                     const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
                     const submitter = USER_NAMES[r.userId] || ('用户' + r.userId);
@@ -649,10 +682,10 @@
                     // 顶部信息条：周次 / 提交人 / 状态 / 提交时间
                     let bodyHtml = `
                     <div class="detail-meta">
-                        <span class="meta-chip">🗓 ${escapeHtml(weekDate)} 周</span>
-                        <span class="meta-chip">👤 ${escapeHtml(submitter)}</span>
+                        <span class="meta-chip">${escapeHtml(weekDate)} 周</span>
+                        <span class="meta-chip">${escapeHtml(submitter)}</span>
                         <span class="badge ${badgeClass}">${statusText}</span>
-                        <span class="meta-chip">⏰ 提交：${escapeHtml(submitTime)}</span>
+                        <span class="meta-chip">提交：${escapeHtml(submitTime)}</span>
                     </div>`;
 
                     // 四个字段（可编辑时带字数限制和计数）
@@ -675,8 +708,8 @@
                             </div>`;
                         } else {
                             bodyHtml += `
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">${f.label}</label>
+                            <div class="detail-field">
+                                <div class="field-label">${f.label}</div>
                                 <p class="report-field">${escapeHtml(val) || '-'}</p>
                             </div>`;
                         }
@@ -684,12 +717,13 @@
 
                     body.innerHTML = bodyHtml;
 
-                    // 操作按钮（仅编辑中状态显示）
+                    // 操作按钮（仅本周周报显示；提交仅周五可用）
                     if (isEditable) {
+                        const canSubmit = isFriday();
                         actions.style.display = '';
                         actions.innerHTML = `
                         <button class="btn btn-gradient me-2" onclick="saveDetailEdit(${r.id})">保存修改</button>
-                        <button class="btn btn-gradient" onclick="submitDetailReport(${r.id})">提交</button>`;
+                        <button class="btn btn-gradient" onclick="submitDetailReport(${r.id})" ${canSubmit ? '' : 'disabled'}>${canSubmit ? '提交' : '仅周五可提交'}</button>`;
                     }
 
                     const modal = new bootstrap.Modal(document.getElementById('detailModal'));
@@ -747,7 +781,7 @@
 
     // 在弹窗里提交
     function submitDetailReport(reportId) {
-        if (!confirm('确定提交这份周报吗？提交后将不可编辑。')) return;
+        if (!confirm('确定提交这份周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。')) return;
 
         const payload = {
             overallProgress: document.getElementById('editOverallProgress').value,
@@ -878,12 +912,12 @@
             const statusText = statusMap[r.status] || r.status;
             const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
             const submitTime = r.submittedAt ? r.submittedAt.replace('T', ' ') : '-';
-            html += `<tr>
-                <td>${r.title || '-'}</td>
-                <td>${r.weekStartDate || '-'}</td>
-                <td><span class="badge ${badgeClass}">${statusText}</span></td>
-                <td>${submitTime}</td>
-                <td><button class="btn btn-sm btn-glass" onclick="viewDetail(${r.id})">查看</button></td>
+            html += `<tr class="row-clickable" onclick="viewDetail(${r.id})">
+                <td>${escapeHtml(r.title || '-')}</td>
+                <td>${escapeHtml(r.weekStartDate || '-')}</td>
+                <td><span class="badge ${badgeClass}">${escapeHtml(statusText)}</span></td>
+                <td>${escapeHtml(submitTime)}</td>
+                <td><button class="btn btn-sm btn-glass" onclick="event.stopPropagation(); viewDetail(${r.id})">查看</button></td>
             </tr>`;
         }
         html += '</tbody></table>';
@@ -1032,6 +1066,7 @@
             });
         }
         updateWeekSubtitle();
+        updateSubmitButtons();
         loadWeekProgress();
         initCharCounters();
         loadCurrentWeek();
