@@ -12,6 +12,7 @@ import com.practice.weeklyreportmanager.vo.TeamMemberReportVO;
 import com.practice.weeklyreportmanager.vo.WeekGroupVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,6 +89,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 2. 保存周报（草稿），不校验周五
     @Override
     @Transactional
+    @CacheEvict(value = "teamView", allEntries = true)
     public WeeklyReport saveWeeklyReport(WeeklyReportDTO dto, Long userId) {
         // 参数校验
         validateContent(dto);
@@ -137,6 +139,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 3. 提交周报
     @Override
     @Transactional
+    @CacheEvict(value = "teamView", allEntries = true)
     public WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId) {
         // 校验前三个文本框内容不为空，且四个文本框内容不超过1000字
         validateContent(dto);
@@ -232,6 +235,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 5. 更新周报（按id）
     @Override
     @Transactional
+    @CacheEvict(value = "teamView", allEntries = true)
     public WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id) {
         // 校验周报是否存在
         WeeklyReport existing = weeklyReportMapper.selectById(id);  // 按主键id查
@@ -260,6 +264,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 6. 提交历史周报
     @Override
     @Transactional
+    @CacheEvict(value = "teamView", allEntries = true)
     public WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id) {
         WeeklyReport existing = weeklyReportMapper.selectById(id);
         if (existing == null) {

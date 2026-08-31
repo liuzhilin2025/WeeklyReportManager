@@ -2,6 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>我的周报</title>
     <!-- Bootstrap 5 样式（快速美化） -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -91,7 +92,7 @@
         .pagination-bar { border-top: 1px solid var(--line); padding-top: 12px; }
 
         .week-title { font-size: 20px; font-weight: 700; }
-        textarea { resize: vertical; min-height: 100px; }
+        textarea { resize: vertical; min-height: 160px; }
 
         /* 字数计数（文本框右下角） */
         .char-counter { position: absolute; right: 10px; bottom: 8px; font-size: 12px; color: var(--muted); background: rgba(255,255,255,0.9); padding: 0 4px; border-radius: 4px; pointer-events: none; }
@@ -212,7 +213,7 @@
             </div>
             <div id="reportActions" class="d-flex flex-column align-items-end gap-1">
                 <div class="d-flex gap-2">
-                    <button class="btn btn-glass" onclick="saveDraft()">保存草稿</button>
+                    <button class="btn btn-glass" onclick="saveDraft()" id="btnSaveDraft">保存草稿</button>
                     <button class="btn btn-gradient" onclick="submitReport()" id="btnSubmitCurrent">保存并提交</button>
                 </div>
                 <div class="text-muted small" id="draftSavedTime" style="display:none;"></div>
@@ -223,28 +224,28 @@
             <div class="form-item">
                 <label class="form-label fw-bold">总体进度</label>
                 <div class="position-relative">
-                    <textarea class="form-control" id="content1" rows="4" placeholder="请填写本周总体进度..." maxlength="1000"></textarea>
+                    <textarea class="form-control" id="content1" rows="8" placeholder="请填写本周总体进度..." maxlength="1000"></textarea>
                     <span class="char-counter" id="counter1">0 / 1000</span>
                 </div>
             </div>
             <div class="form-item">
                 <label class="form-label fw-bold">本周进展</label>
                 <div class="position-relative">
-                    <textarea class="form-control" id="content2" rows="4" placeholder="请填写本周工作进展..." maxlength="1000"></textarea>
+                    <textarea class="form-control" id="content2" rows="8" placeholder="请填写本周工作进展..." maxlength="1000"></textarea>
                     <span class="char-counter" id="counter2">0 / 1000</span>
                 </div>
             </div>
             <div class="form-item">
                 <label class="form-label fw-bold">下周目标</label>
                 <div class="position-relative">
-                    <textarea class="form-control" id="content3" rows="4" placeholder="请填写下周计划..." maxlength="1000"></textarea>
+                    <textarea class="form-control" id="content3" rows="8" placeholder="请填写下周计划..." maxlength="1000"></textarea>
                     <span class="char-counter" id="counter3">0 / 1000</span>
                 </div>
             </div>
             <div class="form-item">
                 <label class="form-label fw-bold">其他补充</label>
                 <div class="position-relative">
-                    <textarea class="form-control" id="content4" rows="4" placeholder="其他想补充的内容..." maxlength="1000"></textarea>
+                    <textarea class="form-control" id="content4" rows="8" placeholder="其他想补充的内容..." maxlength="1000"></textarea>
                     <span class="char-counter" id="counter4">0 / 1000</span>
                 </div>
             </div>
@@ -375,6 +376,7 @@
     const PAGE_SIZE = 10;
     let totalWeeks = 0;
     let currentData = [];
+    let saving = false;   // 防止保存/提交被重复点击
     let myCurrentPage = 1;   // 我的历史周报分页
     let myTotal = 0;         // 我的历史周报总条数
     let lastUserId = parseInt(document.getElementById('userIdSelect').value);   // 当前选中的用户（取消切换时还原）
@@ -451,7 +453,7 @@
                 lastLoadedContent = currentContentSnapshot();
                 updateCounters();
             })
-            .catch(() => {});
+            .catch(() => showToast('加载失败，请稍后重试', 'error'));
     }
 
     // 更新主表单的提交状态提示（不锁定表单：本周内可反复修改并再次提交）
@@ -478,6 +480,11 @@
 
     // ==================== 保存草稿 ====================
     function saveDraft() {
+        if (saving) return;   // 防止重复点击
+        const btn = document.getElementById('btnSaveDraft');
+        saving = true;
+        btn.disabled = true;
+        btn.textContent = '保存中...';
         const userId = getCurrentUserId();
         const payload = {
             overallProgress: document.getElementById('content1').value,
@@ -500,7 +507,12 @@
                     showToast('保存失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => {
+                saving = false;
+                btn.disabled = false;
+                btn.textContent = '保存草稿';
+            });
     }
 
     function getCurrentUserId() {
@@ -520,7 +532,12 @@
 
     // ==================== 提交周报 ====================
     function submitReport() {
+        if (saving) return;   // 防止重复点击
         if (!confirm('确定提交本周周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。')) return;
+        const btn = document.getElementById('btnSubmitCurrent');
+        saving = true;
+        btn.disabled = true;
+        btn.textContent = '提交中...';
         const userId = getCurrentUserId();
         const payload = {
             overallProgress: document.getElementById('content1').value,
@@ -543,7 +560,11 @@
                     showToast('提交失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => {
+                saving = false;
+                updateSubmitButtons();   // 恢复按钮（周五重新可用）
+            });
     }
 
     // ==================== 加载团队视图（历史周报） ====================
@@ -748,6 +769,8 @@
 
     // 在弹窗里保存修改
     function saveDetailEdit(reportId) {
+        if (saving) return;   // 防止重复点击
+        saving = true;
         const payload = {
             overallProgress: document.getElementById('editOverallProgress').value,
             weeklyWorkReport: document.getElementById('editWeeklyWorkReport').value,
@@ -776,12 +799,15 @@
                     showToast('保存失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => { saving = false; });
     }
 
     // 在弹窗里提交
     function submitDetailReport(reportId) {
+        if (saving) return;   // 防止重复点击
         if (!confirm('确定提交这份周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。')) return;
+        saving = true;
 
         const payload = {
             overallProgress: document.getElementById('editOverallProgress').value,
@@ -809,7 +835,8 @@
                     showToast('提交失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'));
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => { saving = false; });
     }
 
     // ==================== 分页 ====================
@@ -907,7 +934,7 @@
             'EDITING': '编辑中',
             'SUBMITTED': '已提交'
         };
-        let html = '<table class="table table-striped align-middle mb-0"><thead><tr><th>标题</th><th>开始日期</th><th>状态</th><th>提交时间</th><th>操作</th></tr></thead><tbody>';
+        let html = '<div class="table-responsive"><table class="table table-striped align-middle mb-0"><thead><tr><th>标题</th><th>开始日期</th><th>状态</th><th>提交时间</th><th>操作</th></tr></thead><tbody>';
         for (const r of reports) {
             const statusText = statusMap[r.status] || r.status;
             const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
@@ -920,7 +947,7 @@
                 <td><button class="btn btn-sm btn-glass" onclick="event.stopPropagation(); viewDetail(${r.id})">查看</button></td>
             </tr>`;
         }
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         container.innerHTML = html;
     }
 
@@ -1032,7 +1059,7 @@
                     document.getElementById('weekProgressText').innerText = `${submitted} / ${total} 人已提交`;
                 }
             })
-            .catch(() => {});
+            .catch(() => showToast('加载失败，请稍后重试', 'error'));
     }
 
     // 字数计数
@@ -1069,8 +1096,7 @@
         updateSubmitButtons();
         loadWeekProgress();
         initCharCounters();
-        loadCurrentWeek();
-        // 默认显示本周周报
+        // 默认显示本周周报（click 会触发 loadCurrentWeek，避免重复请求）
         document.querySelector('.tab-header span.active').click();
     };
 </script>
