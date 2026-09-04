@@ -13,7 +13,7 @@ public interface WeeklyReportService {
     WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId);
     Page<WeeklyReport> getReports(Long userId,Integer pageNo, Integer pageSize, LocalDate startDate, LocalDate endDate);
     WeeklyReport getReportById(Long id);
-    WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id);
-    WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id);
+    WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id, Long userId);
+    WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id, Long userId);
     Page<WeekGroupVO> getTeamViewReports(LocalDate startDate, LocalDate endDate, Integer pageNo, Integer pageSize);
 }

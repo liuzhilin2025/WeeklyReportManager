@@ -67,16 +67,18 @@ public class WeeklyReportController {
     @PutMapping("/{id}")
     public Result<WeeklyReport> updateWeeklyReport(
             @PathVariable Long id,
-            @RequestBody WeeklyReportDTO dto) {
-        WeeklyReport report = weeklyReportService.updateWeeklyReport(dto, id);
+            @RequestBody WeeklyReportDTO dto,
+            @RequestParam(required = false) Long userId) {
+        WeeklyReport report = weeklyReportService.updateWeeklyReport(dto, id, userId);
         return Result.success(report);
     }
 
     @PostMapping("/{id}/submit")
     public Result<WeeklyReport> submitHistoryWeekly(
             @PathVariable Long id,
-            @RequestBody WeeklyReportDTO dto) {
-        WeeklyReport report = weeklyReportService.submitHistoryWeekly(dto, id);
+            @RequestBody WeeklyReportDTO dto,
+            @RequestParam(required = false) Long userId) {
+        WeeklyReport report = weeklyReportService.submitHistoryWeekly(dto, id, userId);
         return Result.success(report);
     }
 

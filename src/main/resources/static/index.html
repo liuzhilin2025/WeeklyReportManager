@@ -61,10 +61,10 @@
         .table td { vertical-align: middle; }
         .table tbody tr.row-clickable { cursor: pointer; }
         .table tbody tr.row-clickable:hover { background: rgba(255,40,64,0.08); }
-        /* 团队视图：未提交成员行高亮（浅红底 + 左侧 4px 红条），一眼看出缺交 */
-        .table tbody tr.row-missed, .table tbody tr.row-missed > * { background-color: #ffe9eb; }
+        /* 团队视图：未提交成员行高亮（#FFF0F0 极淡红底 + 左侧 4px 红条），醒目又不刺眼 */
+        .table tbody tr.row-missed, .table tbody tr.row-missed > * { background-color: #FFF0F0; }
         .table tbody tr.row-missed td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
-        .table tbody tr.row-missed:hover, .table tbody tr.row-missed:hover > * { background-color: #ffdfe2; }
+        .table tbody tr.row-missed:hover, .table tbody tr.row-missed:hover > * { background-color: #FFE4E4; }
         /* 第一列（成员/标题）和最后一列留出左右呼吸空间，避免贴边 */
         .table th:first-child, .table td:first-child { padding-left: 16px; }
         .table th:last-child, .table td:last-child { padding-right: 16px; }
@@ -80,13 +80,23 @@
         .form-select { background-color: #fff; border: 1px solid #cbd5e1; }
 
         /* 按钮 */
-        .btn-gradient { background: linear-gradient(180deg, #ff5a6b 0%, #ff2840 60%, #e02237 100%); border: none; color: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(255,40,64,0.28); transition: all .2s; }
-        .btn-gradient:hover, .btn-gradient:focus { color: #fff; background: linear-gradient(180deg, #ff2840 0%, #d91f34 100%); box-shadow: 0 6px 18px rgba(255,40,64,0.35); transform: translateY(-1px); }
+        /* 保存按钮：白底黑字；hover 向左上浮动并露出红色 */
+        .btn-save { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; box-shadow: 0 2px 6px rgba(17,17,20,0.08); transition: all .2s; }
+        .btn-save:hover, .btn-save:focus { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
+        /* 提交按钮：黑底白字；hover 向左上浮动并露出红色 */
+        .btn-submit { background: linear-gradient(180deg, #2c2c33 0%, #111114 100%); border: none; color: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(17,17,20,0.25); transition: all .2s; }
+        .btn-submit:hover, .btn-submit:focus { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
         .btn-glass { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
         .btn-glass:hover { background: #fff5f6; color: var(--accent); border-color: var(--accent); }
+        /* 重置按钮：白底黑字；hover 向上浮动，不变红 */
+        .btn-reset { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
+        .btn-reset:hover, .btn-reset:focus { background: #fff; border-color: var(--ink); color: var(--ink); transform: translateY(-1px); }
+        /* 搜索按钮：黑色主题（红色为危险色，搜索动作不宜用红） */
+        .btn-ink { background: linear-gradient(180deg, #2c2c33 0%, #111114 100%); border: none; color: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(17,17,20,0.25); transition: all .2s; }
+        .btn-ink:hover, .btn-ink:focus { color: #fff; background: linear-gradient(180deg, #111114 0%, #000000 100%); box-shadow: 0 6px 18px rgba(17,17,20,0.35); transform: translateY(-1px); }
         /* 禁用态：非周五不可提交 */
-        .btn-gradient:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
-        .btn-gradient:disabled:hover, .btn-gradient:disabled:focus { transform: none; box-shadow: none; }
+        .btn-submit:disabled { background: #6b6b76; color: #fff; opacity: 1; cursor: not-allowed; box-shadow: none; }
+        .btn-submit:disabled:hover, .btn-submit:disabled:focus { background: #6b6b76; color: #fff; transform: none; box-shadow: none; }
 
         /* 分页栏 */
         .pagination-bar { border-top: 1px solid var(--line); padding-top: 12px; }
@@ -133,9 +143,8 @@
         .detail-field .field-label { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
         .detail-field .report-field { margin: 0; }
 
-        /* 状态徽章：语义色（绿=已提交 / 描边=编辑中 / 红=未提交） */
+        /* 状态徽章：语义色（绿=已提交 / 红=未提交） */
         .bg-success { background-color: #059669 !important; color: #fff !important; }        /* 已提交 = 绿 */
-        .bg-warning { background-color: #fff !important; color: var(--ink) !important; border: 1px solid var(--ink); }  /* 编辑中 = 黑描边 */
         .bg-danger { background-color: var(--accent) !important; color: #fff !important; }   /* 未提交 = 红 */
         .bg-info { background-color: var(--bg-soft) !important; color: var(--ink) !important; }    /* 计数徽章 = 中性 */
 
@@ -213,8 +222,8 @@
             </div>
             <div id="reportActions" class="d-flex flex-column align-items-end gap-1">
                 <div class="d-flex gap-2">
-                    <button class="btn btn-glass" onclick="saveDraft()" id="btnSaveDraft">保存草稿</button>
-                    <button class="btn btn-gradient" onclick="submitReport()" id="btnSubmitCurrent">保存并提交</button>
+                    <button class="btn btn-save" onclick="saveDraft()" id="btnSaveDraft">保存草稿</button>
+                    <button class="btn btn-submit" onclick="submitReport()" id="btnSubmitCurrent">保存并提交</button>
                 </div>
                 <div class="text-muted small" id="draftSavedTime" style="display:none;"></div>
             </div>
@@ -265,10 +274,10 @@
                     <input type="text" class="form-control" id="endDate" placeholder="YYYY-MM-DD" autocomplete="off">
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-gradient w-100" onclick="loadHistory()">搜索</button>
+                    <button class="btn btn-ink w-100" onclick="loadHistory()">搜索</button>
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-glass w-100" onclick="resetSearch()">重置</button>
+                    <button class="btn btn-reset w-100" onclick="resetSearch()">重置</button>
                 </div>
                 <div class="col-md-2">
                     <div class="badge bg-info w-100 d-flex align-items-center justify-content-center" id="totalBadge" style="height:38px;">共 0 周</div>
@@ -306,10 +315,10 @@
                     <input type="text" class="form-control" id="endDateMy" placeholder="YYYY-MM-DD" autocomplete="off">
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-gradient w-100" onclick="loadMyHistory()">搜索</button>
+                    <button class="btn btn-ink w-100" onclick="loadMyHistory()">搜索</button>
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-glass w-100" onclick="resetMySearch()">重置</button>
+                    <button class="btn btn-reset w-100" onclick="resetMySearch()">重置</button>
                 </div>
                 <div class="col-md-2">
                     <div class="badge bg-info w-100 d-flex align-items-center justify-content-center" id="totalBadgeMy" style="height:38px;">共 0 条</div>
@@ -617,28 +626,25 @@
             html += `<div class="card mb-3"><div class="card-header bg-light d-flex justify-content-between align-items-center"><span class="fw-bold">${group.weekTitle}</span><span class="badge ${allSubmitted ? 'bg-success' : 'bg-info'}">${submittedCount}/${totalMembers} 已提交</span></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-striped mb-0" style="table-layout:fixed; min-width:640px;"><colgroup><col style="width:16%"><col style="width:30%"><col style="width:24%"><col style="width:30%"></colgroup><thead><tr><th>成员</th><th>最近更新</th><th>提交状态</th><th>操作</th></tr></thead><tbody>`;
             for (const member of group.members) {
                 const statusMap = {
-                    'EDITING': '编辑中',
                     'SUBMITTED': '已提交',
                     'NOT_SUBMITTED': '未提交'
                 };
-                const statusText = statusMap[member.status] || member.status;
+                const statusText = statusMap[member.status] || '未提交';
                 const hasReport = !!member.reportId;
                 let badgeHtml;
                 if (member.status === 'SUBMITTED') {
                     badgeHtml = `<span class="badge bg-success">${statusText}</span>`;
-                } else if (member.status === 'NOT_SUBMITTED') {
-                    badgeHtml = `<span class="badge bg-danger">${statusText}</span>`;
                 } else {
-                    badgeHtml = `<span class="badge bg-warning">${statusText}</span>`;
+                    badgeHtml = `<span class="badge bg-danger">${statusText}</span>`;
                 }
-                // 最近更新：已提交显示提交时间，编辑中显示编辑时间，未交显示 -
+                // 最近更新：已提交显示提交时间；有草稿显示更新时间；未交显示 -
                 let timeCell = '-';
                 if (member.status === 'SUBMITTED' && member.submittedAt) {
                     timeCell = `<span class="text-success">提交于 ${fmtTime(member.submittedAt)}</span>`;
-                } else if (member.status === 'EDITING' && member.updateTime) {
+                } else if (member.updateTime) {
                     timeCell = `编辑于 ${fmtTime(member.updateTime)}`;
                 }
-                // 未提交成员行高亮（浅红底 + 左侧红条），一眼看出缺交
+                // 未提交成员行高亮（#FFF0F0 极淡红底 + 左侧红条），一眼看出缺交
                 const missed = !hasReport;
                 const rowExtra = hasReport ? 'row-clickable' : 'row-missed';
                 const rowOnclick = hasReport ? ` onclick="viewDetail(${member.reportId})"` : '';
@@ -647,7 +653,7 @@
                     <td>${timeCell}</td>
                     <td>${badgeHtml}</td>
                     <td>
-                        ${hasReport ? `<button class="btn btn-sm btn-glass" onclick="event.stopPropagation(); viewDetail(${member.reportId})">查看</button>` : '-'}
+                        ${hasReport ? `<button class="btn btn-sm btn-save" onclick="event.stopPropagation(); viewDetail(${member.reportId})">查看</button>` : '-'}
                     </td>
                 </tr>`;
             }
@@ -692,9 +698,11 @@
                     const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
                     const fmtD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                     const withinWeek = r.weekStartDate === fmtD(currentMonday);
-                    const isEditable = withinWeek;
-                    const statusText = r.status === 'SUBMITTED' ? '已提交' : '编辑中';
-                    const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
+                    // 只有「自己的」且「本周的」周报允许编辑/提交；他人的周报一律只读
+                    const isOwner = r.userId === getCurrentUserId();
+                    const isEditable = withinWeek && isOwner;
+                    const statusText = r.status === 'SUBMITTED' ? '已提交' : '未提交';
+                    const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-danger';
                     const submitter = USER_NAMES[r.userId] || ('用户' + r.userId);
                     const submitTime = r.submittedAt ? r.submittedAt.replace('T', ' ').slice(0, 16) : '-';
                     const weekDate = r.weekStartDate || '-';
@@ -707,6 +715,7 @@
                         <span class="meta-chip">${escapeHtml(submitter)}</span>
                         <span class="badge ${badgeClass}">${statusText}</span>
                         <span class="meta-chip">提交：${escapeHtml(submitTime)}</span>
+                        ${isOwner ? '' : '<span class="badge bg-info">他人周报 · 只读</span>'}
                     </div>`;
 
                     // 四个字段（可编辑时带字数限制和计数）
@@ -743,8 +752,8 @@
                         const canSubmit = isFriday();
                         actions.style.display = '';
                         actions.innerHTML = `
-                        <button class="btn btn-gradient me-2" onclick="saveDetailEdit(${r.id})">保存修改</button>
-                        <button class="btn btn-gradient" onclick="submitDetailReport(${r.id})" ${canSubmit ? '' : 'disabled'}>${canSubmit ? '提交' : '仅周五可提交'}</button>`;
+                        <button class="btn btn-save me-2" onclick="saveDetailEdit(${r.id})">保存修改</button>
+                        <button class="btn btn-submit" onclick="submitDetailReport(${r.id})" ${canSubmit ? '' : 'disabled'}>${canSubmit ? '提交' : '仅周五可提交'}</button>`;
                     }
 
                     const modal = new bootstrap.Modal(document.getElementById('detailModal'));
@@ -778,7 +787,7 @@
             other: document.getElementById('editOther').value
         };
 
-        fetch(`${BASE_URL}/api/reports/${reportId}`, {
+        fetch(`${BASE_URL}/api/reports/${reportId}?userId=${getCurrentUserId()}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -816,7 +825,7 @@
             other: document.getElementById('editOther').value
         };
 
-        fetch(`${BASE_URL}/api/reports/${reportId}/submit`, {
+        fetch(`${BASE_URL}/api/reports/${reportId}/submit?userId=${getCurrentUserId()}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -931,20 +940,20 @@
             return;
         }
         const statusMap = {
-            'EDITING': '编辑中',
-            'SUBMITTED': '已提交'
+            'SUBMITTED': '已提交',
+            'NOT_SUBMITTED': '未提交'
         };
         let html = '<div class="table-responsive"><table class="table table-striped align-middle mb-0"><thead><tr><th>标题</th><th>开始日期</th><th>状态</th><th>提交时间</th><th>操作</th></tr></thead><tbody>';
         for (const r of reports) {
-            const statusText = statusMap[r.status] || r.status;
-            const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-warning';
+            const statusText = statusMap[r.status] || '未提交';
+            const badgeClass = r.status === 'SUBMITTED' ? 'bg-success' : 'bg-danger';
             const submitTime = r.submittedAt ? r.submittedAt.replace('T', ' ') : '-';
             html += `<tr class="row-clickable" onclick="viewDetail(${r.id})">
                 <td>${escapeHtml(r.title || '-')}</td>
                 <td>${escapeHtml(r.weekStartDate || '-')}</td>
                 <td><span class="badge ${badgeClass}">${escapeHtml(statusText)}</span></td>
                 <td>${escapeHtml(submitTime)}</td>
-                <td><button class="btn btn-sm btn-glass" onclick="event.stopPropagation(); viewDetail(${r.id})">查看</button></td>
+                <td><button class="btn btn-sm btn-save" onclick="event.stopPropagation(); viewDetail(${r.id})">查看</button></td>
             </tr>`;
         }
         html += '</tbody></table></div>';

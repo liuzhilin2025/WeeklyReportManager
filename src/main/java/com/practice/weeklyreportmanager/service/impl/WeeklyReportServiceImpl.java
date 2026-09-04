@@ -17,7 +17,6 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.rmi.MarshalledObject;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -89,7 +88,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 2. 保存周报（草稿），不校验周五
     @Override
     @Transactional
-    @CacheEvict(value = "teamView", allEntries = true)
+    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true) // 用于删除操作，方法执行后删除缓存中的指定数据
     public WeeklyReport saveWeeklyReport(WeeklyReportDTO dto, Long userId) {
         // 参数校验
         validateContent(dto);
@@ -128,8 +127,8 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
             weeklyReportMapper.updateById(report);
             log.info("更新周报成功，id：{}, week：{}", report.getId(), Monday);
         } else {
-            // 插入：状态为编辑中，因为是保存草稿不是提交
-            report.setStatus("EDITING");
+            // 插入：没有提交就是未提交
+            report.setStatus("NOT_SUBMITTED");
             weeklyReportMapper.insert(report);
             log.info("插入周报成功，id：{}, week：{}", report.getId(), Monday);
         }
@@ -139,7 +138,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 3. 提交周报
     @Override
     @Transactional
-    @CacheEvict(value = "teamView", allEntries = true)
+    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true)
     public WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId) {
         // 校验前三个文本框内容不为空，且四个文本框内容不超过1000字
         validateContent(dto);
@@ -187,6 +186,9 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
 
     // 个人历史周报
     @Override
+    // 查询时先查缓存，命中直接返回；未命中则查库并写入缓存。
+    // key 必须带上 userId 和分页/日期条件，否则不同用户/不同条件会互相串数据
+    @Cacheable(value = "personalView", key = "#userId + '_' + (#startDate != null ? #startDate.toString() : 'null') + '_' + (#endDate != null ? #endDate.toString() : 'null') + '_' + #pageNo + '_' + #pageSize")
     public Page<WeeklyReport> getReports(Long userId, Integer pageNo, Integer pageSize, LocalDate startDate, LocalDate endDate) {
         if (userId == null) {
             log.error("userId不能为空");
@@ -235,12 +237,17 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 5. 更新周报（按id）
     @Override
     @Transactional
-    @CacheEvict(value = "teamView", allEntries = true)
-    public WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id) {
+    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true)
+    public WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id, Long userId) {
         // 校验周报是否存在
         WeeklyReport existing = weeklyReportMapper.selectById(id);  // 按主键id查
         if (existing == null) {
             throw new IllegalArgumentException("周报不存在");
+        }
+
+        // 只能修改自己的周报
+        if (userId == null || !userId.equals(existing.getUserId())) {
+            throw new IllegalArgumentException("无权修改他人的周报");
         }
 
         // 只有本周的周报允许修改；过周后一律只读
@@ -264,11 +271,16 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 6. 提交历史周报
     @Override
     @Transactional
-    @CacheEvict(value = "teamView", allEntries = true)
-    public WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id) {
+    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true)
+    public WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id, Long userId) {
         WeeklyReport existing = weeklyReportMapper.selectById(id);
         if (existing == null) {
             throw new IllegalArgumentException("周报不存在");
+        }
+
+        // 只能提交自己的周报
+        if (userId == null || !userId.equals(existing.getUserId())) {
+            throw new IllegalArgumentException("无权提交他人的周报");
         }
 
         // 只有本周的周报允许提交；过周后一律只读
@@ -306,6 +318,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
 
     // 7. 查看所有成员的周报填写情况
     @Override
+    // 用于查询操作，方法执行前先查询缓存，如果缓存中存在，则直接返回缓存结果，不执行方法；如果缓存中不存在，则执行方法，并将方法返回值存入缓存。
     @Cacheable(value = "teamView", key = "(#startDate != null ? #startDate.toString() : 'null') + '_' + (#endDate != null ? #endDate.toString() : 'null') + '_' + #pageNo + '_' + #pageSize")
     public Page<WeekGroupVO> getTeamViewReports(LocalDate startDate, LocalDate endDate, Integer pageNo, Integer pageSize) {
         // 1. 获取所有成员

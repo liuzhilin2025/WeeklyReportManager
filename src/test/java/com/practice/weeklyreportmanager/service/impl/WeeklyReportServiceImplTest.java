@@ -60,7 +60,7 @@ class WeeklyReportServiceImplTest {
         existingReport.setWeeklyWorkReport("本周进展：后端接口开发");
         existingReport.setNextWeekPlan("下周目标：前端联调");
         existingReport.setOther("无");
-        existingReport.setStatus("EDITING");
+        existingReport.setStatus("NOT_SUBMITTED");
         existingReport.setCreatedAt(LocalDateTime.now());
         existingReport.setUpdatedAt(LocalDateTime.now());
     }
@@ -98,7 +98,7 @@ class WeeklyReportServiceImplTest {
         WeeklyReport result = weeklyReportService.saveWeeklyReport(validDto, 1L);
 
         assertNotNull(result);
-        assertEquals("EDITING", result.getStatus());
+        assertEquals("NOT_SUBMITTED", result.getStatus());
         assertEquals("总体进度：完成需求分析和数据库设计", result.getOverallProgress());
 
         // 创建一个抓取器，forClass方法，用于生成一个ArgumentCaptor对象
@@ -110,7 +110,7 @@ class WeeklyReportServiceImplTest {
         // getValue方法用于从捕获器ArgumentCaptor中取出捕获的内容
         WeeklyReport saved = captor.getValue();
 
-        assertEquals("EDITING", saved.getStatus());
+        assertEquals("NOT_SUBMITTED", saved.getStatus());
 
         // 确认 weeklyReportMapper.updateById()一次都没有被调用
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
@@ -124,7 +124,7 @@ class WeeklyReportServiceImplTest {
         WeeklyReport result = weeklyReportService.saveWeeklyReport(validDto, 1L);
 
         assertNotNull(result);
-        assertEquals("EDITING", result.getStatus()); // 保持原状态
+        assertEquals("NOT_SUBMITTED", result.getStatus()); // 保持原状态
         assertEquals("总体进度：完成需求分析和数据库设计", result.getOverallProgress());
 
         verify(weeklyReportMapper, never()).insert(any(WeeklyReport.class));
@@ -160,7 +160,18 @@ class WeeklyReportServiceImplTest {
         when(weeklyReportMapper.selectById(anyLong())).thenReturn(null);
 
         assertThrows(IllegalArgumentException.class,
-                () -> weeklyReportService.updateWeeklyReport(validDto, 999L));
+                () -> weeklyReportService.updateWeeklyReport(validDto, 999L, 1L));
+        verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
+    }
+
+    @Test
+    void updateWeeklyReport_shouldThrow_whenNotOwner() {
+        existingReport.setUserId(1L);
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+
+        // 当前用户是 2 号（李四），报告属于 1 号（张三），无权修改
+        assertThrows(IllegalArgumentException.class,
+                () -> weeklyReportService.updateWeeklyReport(validDto, 1L, 2L));
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
     }
 
@@ -175,7 +186,7 @@ class WeeklyReportServiceImplTest {
             mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
 
             assertThrows(IllegalArgumentException.class,
-                    () -> weeklyReportService.updateWeeklyReport(validDto, 1L));
+                    () -> weeklyReportService.updateWeeklyReport(validDto, 1L, 1L));
         }
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
     }
@@ -191,7 +202,7 @@ class WeeklyReportServiceImplTest {
         try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
             mocked.when(LocalDate::now).thenReturn(friday);
 
-            WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L);
+            WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L, 1L);
 
             assertNotNull(result);
             assertEquals("SUBMITTED", result.getStatus());
@@ -210,10 +221,10 @@ class WeeklyReportServiceImplTest {
         try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
             mocked.when(LocalDate::now).thenReturn(inWeek);
 
-            WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L);
+            WeeklyReport result = weeklyReportService.updateWeeklyReport(validDto, 1L, 1L);
 
             assertNotNull(result);
-            assertEquals("EDITING", result.getStatus());
+            assertEquals("NOT_SUBMITTED", result.getStatus());
             assertEquals("总体进度：完成需求分析和数据库设计", result.getOverallProgress());
             verify(weeklyReportMapper, times(1)).updateById(any(WeeklyReport.class));
         }
@@ -221,7 +232,7 @@ class WeeklyReportServiceImplTest {
 
     @Test
     void updateWeeklyReport_shouldThrow_whenPastWeekEditing() {
-        existingReport.setStatus("EDITING");
+        existingReport.setStatus("NOT_SUBMITTED");
         when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
 
         // 固定"今天"为报告所在周的下一周，过周的周报即使是草稿也只读
@@ -230,7 +241,7 @@ class WeeklyReportServiceImplTest {
             mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
 
             assertThrows(IllegalArgumentException.class,
-                    () -> weeklyReportService.updateWeeklyReport(validDto, 1L));
+                    () -> weeklyReportService.updateWeeklyReport(validDto, 1L, 1L));
         }
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
     }
@@ -260,8 +271,19 @@ class WeeklyReportServiceImplTest {
 
     // ==================== 7. 提交历史周报 ====================
     @Test
+    void submitHistoryWeekly_shouldThrow_whenNotOwner() {
+        existingReport.setUserId(1L);
+        when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
+
+        // 当前用户是 2 号（李四），报告属于 1 号（张三），无权提交
+        assertThrows(IllegalArgumentException.class,
+                () -> weeklyReportService.submitHistoryWeekly(validDto, 1L, 2L));
+        verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
+    }
+
+    @Test
     void submitHistoryWeekly_shouldThrow_whenPastWeekEditing() {
-        existingReport.setStatus("EDITING");
+        existingReport.setStatus("NOT_SUBMITTED");
         when(weeklyReportMapper.selectById(anyLong())).thenReturn(existingReport);
 
         // 固定"今天"为报告所在周的下一周，过周的周报即使是草稿也不能提交
@@ -270,7 +292,7 @@ class WeeklyReportServiceImplTest {
             mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
 
             assertThrows(IllegalArgumentException.class,
-                    () -> weeklyReportService.submitHistoryWeekly(validDto, 1L));
+                    () -> weeklyReportService.submitHistoryWeekly(validDto, 1L, 1L));
         }
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
     }
@@ -286,7 +308,7 @@ class WeeklyReportServiceImplTest {
             mocked.when(LocalDate::now).thenReturn(nextWeekMonday);
 
             assertThrows(IllegalArgumentException.class,
-                    () -> weeklyReportService.submitHistoryWeekly(validDto, 1L));
+                    () -> weeklyReportService.submitHistoryWeekly(validDto, 1L, 1L));
         }
         verify(weeklyReportMapper, never()).updateById(any(WeeklyReport.class));
     }
@@ -302,7 +324,7 @@ class WeeklyReportServiceImplTest {
         try (MockedStatic<LocalDate> mocked = mockStatic(LocalDate.class)) {
             mocked.when(LocalDate::now).thenReturn(friday);
 
-            WeeklyReport result = weeklyReportService.submitHistoryWeekly(validDto, 1L);
+            WeeklyReport result = weeklyReportService.submitHistoryWeekly(validDto, 1L, 1L);
 
             assertNotNull(result);
             assertEquals("SUBMITTED", result.getStatus());
@@ -326,7 +348,7 @@ class WeeklyReportServiceImplTest {
         WeeklyReport report1 = new WeeklyReport();
         report1.setUserId(1L);
         report1.setWeekStartDate(LocalDate.of(2026, 8, 17));
-        report1.setStatus("EDITING");
+        report1.setStatus("NOT_SUBMITTED");
         report1.setUpdatedAt(LocalDateTime.now());
         mockReports.add(report1);
 
