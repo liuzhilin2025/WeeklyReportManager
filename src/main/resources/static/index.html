@@ -88,6 +88,9 @@
         .btn-submit:hover, .btn-submit:focus { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
         .btn-glass { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
         .btn-glass:hover { background: #fff5f6; color: var(--accent); border-color: var(--accent); }
+        /* AI 辅助按钮：浅靛蓝底 + 靛蓝描边，沉稳安静，避免红=警示的突兀感 */
+        .btn-ai { background: #eef1fb; border: 1px solid #b7bee6; color: #46509b; border-radius: 8px; transition: all .2s; }
+        .btn-ai:hover, .btn-ai:focus { background: #dfe4f8; border-color: #46509b; color: #39418a; box-shadow: 0 4px 12px rgba(70,80,155,0.18); }
         /* 重置按钮：白底黑字；hover 向上浮动，不变红 */
         .btn-reset { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
         .btn-reset:hover, .btn-reset:focus { background: #fff; border-color: var(--ink); color: var(--ink); transform: translateY(-1px); }
@@ -221,7 +224,12 @@
                 <span class="text-muted small" id="draftHint">点击保存可将当前内容存为草稿</span>
             </div>
             <div id="reportActions" class="d-flex flex-column align-items-end gap-1">
-                <div class="d-flex gap-2">
+                <div class="d-flex flex-wrap gap-2 justify-content-end">
+                    <button class="btn btn-ai" onclick="openAIDraft()" id="btnAIDraft">AI 辅助撰写</button>
+                    <button class="btn btn-ai" onclick="polishCurrentReport()" id="btnPolish">AI 润色</button>
+                    <button class="btn btn-ai" onclick="checkCurrentReport()" id="btnCheck">完整性检查</button>
+                </div>
+                <div class="d-flex flex-wrap gap-2 justify-content-end">
                     <button class="btn btn-save" onclick="saveDraft()" id="btnSaveDraft">保存草稿</button>
                     <button class="btn btn-submit" onclick="submitReport()" id="btnSubmitCurrent">保存并提交</button>
                 </div>
@@ -362,6 +370,44 @@
     </div>
 </div>
 
+<!-- ========== AI 辅助撰写弹窗 ========== -->
+<div class="modal fade" id="aiDraftModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">AI 辅助撰写</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-2">把你本周做的工作告诉 AI（可用换行或逗号分隔，描述越具体效果越好）。生成成功后会自动填入「填写周报」表单的四个文本框中，确认修改后再保存 / 提交。</div>
+                <textarea class="form-control" id="aiKeywords" rows="6" placeholder="例如：&#10;1. 完成登录模块重构并提测&#10;2. 排查订单接口偶发超时，定位为缓存击穿&#10;3. 整理接口文档，下周三完成评审"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-reset" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-submit" id="btnGenerateDraft" onclick="generateAIDraft()">生成草稿</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== AI 完整性检查结果弹窗 ========== -->
+<div class="modal fade" id="aiCheckModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">AI 完整性检查结果</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="report-field" id="aiCheckResult" style="white-space:pre-wrap; margin:0;">检查中...</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Toast 提示容器 -->
 <div id="toastContainer" class="toast-container"></div>
 
@@ -390,6 +436,9 @@
     let myTotal = 0;         // 我的历史周报总条数
     let lastUserId = parseInt(document.getElementById('userIdSelect').value);   // 当前选中的用户（取消切换时还原）
     let lastLoadedContent = { overallProgress: '', weeklyWorkReport: '', nextWeekPlan: '', other: '' };  // 最近一次加载到表单的内容（用于未保存检测）
+    let aiGenerating = false;   // 防止 AI 生成请求被重复提交
+    let aiPolish = false;       // 防止 AI 润色请求被重复提交
+    let aiChecking = false;     // 防止 AI 完整性检查被重复提交
 
     // ==================== 用户切换 ====================
     // 切换用户时重新加载该用户的本周周报；若在个人历史页，也刷新历史
@@ -573,6 +622,139 @@
             .finally(() => {
                 saving = false;
                 updateSubmitButtons();   // 恢复按钮（周五重新可用）
+            });
+    }
+
+    // ==================== AI 辅助撰写 ====================
+    // "AI 辅助撰写"按钮：弹出关键词输入框，AI 生成草稿后自动填入四个文本域
+    function openAIDraft() {
+        const snapshot = currentContentSnapshot();
+        const hasContent = [snapshot.overallProgress, snapshot.weeklyWorkReport, snapshot.nextWeekPlan, snapshot.other].some(v => v && v.trim());
+        if (hasContent && !confirm('当前表单已有内容，AI 生成的草稿会将其覆盖，是否继续？')) return;
+        document.getElementById('aiKeywords').value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiDraftModal')).show();
+        setTimeout(() => document.getElementById('aiKeywords').focus(), 200);
+    }
+
+    // 请求后端生成草稿，成功后把四个字段填入表单，交给用户确认
+    function generateAIDraft() {
+        if (aiGenerating) return;   // 防止重复点击
+        const input = document.getElementById('aiKeywords').value.trim();
+        if (!input) {
+            showToast('请先输入本周工作内容', 'error');
+            return;
+        }
+        const btn = document.getElementById('btnGenerateDraft');
+        aiGenerating = true;
+        btn.disabled = true;
+        btn.textContent = 'AI 生成中...';
+        fetch(`${BASE_URL}/api/reports/ai/draft`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: input })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data) {
+                    const d = data.data;
+                    document.getElementById('content1').value = d.overallProgress || '';
+                    document.getElementById('content2').value = d.weeklyWorkReport || '';
+                    document.getElementById('content3').value = d.nextWeekPlan || '';
+                    document.getElementById('content4').value = d.other || '';
+                    updateCounters();
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('aiDraftModal'));
+                    if (modal) modal.hide();
+                    showToast('AI 草稿已填入表单，请确认后再保存 / 提交');
+                } else {
+                    showToast('生成失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
+                }
+            })
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => {
+                aiGenerating = false;
+                btn.disabled = false;
+                btn.textContent = '生成草稿';
+            });
+    }
+
+    // ==================== AI 润色 ====================
+    // 把表单已填字段发给 AI 润色；返回结果只覆盖"已填过"的字段（空字段保持原样）
+    function polishCurrentReport() {
+        if (aiPolish) return;   // 防止重复点击
+        const payload = currentContentSnapshot();
+        const hasAny = [payload.overallProgress, payload.weeklyWorkReport, payload.nextWeekPlan, payload.other].some(v => v && v.trim());
+        if (!hasAny) {
+            showToast('请先填写要润色的内容', 'error');
+            return;
+        }
+        const btn = document.getElementById('btnPolish');
+        aiPolish = true;
+        btn.disabled = true;
+        btn.textContent = '润色中...';
+        fetch(`${BASE_URL}/api/reports/ai/polish`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200 && data.data) {
+                    const d = data.data;
+                    // 只写回非空字段：前端只填了部分时，没填的字段不会被 AI 或空串清掉
+                    if (d.overallProgress) document.getElementById('content1').value = d.overallProgress;
+                    if (d.weeklyWorkReport) document.getElementById('content2').value = d.weeklyWorkReport;
+                    if (d.nextWeekPlan) document.getElementById('content3').value = d.nextWeekPlan;
+                    if (d.other) document.getElementById('content4').value = d.other;
+                    updateCounters();
+                    showToast('AI 润色完成，已更新已填字段，请确认');
+                } else {
+                    showToast('润色失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
+                }
+            })
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => {
+                aiPolish = false;
+                btn.disabled = false;
+                btn.textContent = 'AI 润色';
+            });
+    }
+
+    // ==================== AI 完整性检查 ====================
+    // 把当前四个字段发给 AI 检查，结果以多行文本展示在弹窗中
+    function checkCurrentReport() {
+        if (aiChecking) return;   // 防止重复点击
+        const payload = currentContentSnapshot();
+        // 前三个字段必填（与后端校验一致），空时先在前端拦截
+        if (!(payload.overallProgress && payload.overallProgress.trim())
+            || !(payload.weeklyWorkReport && payload.weeklyWorkReport.trim())
+            || !(payload.nextWeekPlan && payload.nextWeekPlan.trim())) {
+            showToast('请先填写总体进度、本周进展、下周目标', 'error');
+            return;
+        }
+        const btn = document.getElementById('btnCheck');
+        aiChecking = true;
+        btn.disabled = true;
+        btn.textContent = '检查中...';
+        fetch(`${BASE_URL}/api/reports/ai/check?userId=${getCurrentUserId()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200) {
+                    const resultEl = document.getElementById('aiCheckResult');
+                    resultEl.textContent = data.data || '内容完整，无缺失项';
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('aiCheckModal')).show();
+                } else {
+                    showToast('检查失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
+                }
+            })
+            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .finally(() => {
+                aiChecking = false;
+                btn.disabled = false;
+                btn.textContent = '完整性检查';
             });
     }
 

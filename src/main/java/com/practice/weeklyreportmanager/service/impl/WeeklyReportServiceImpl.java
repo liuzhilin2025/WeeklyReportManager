@@ -84,6 +84,17 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
         return weeklyReportMapper.selectOne(wrapper);
     }
 
+    // 1.1 获取上周周报（用于 AI 完整性检查的"承接关系"对比）
+    @Override
+    public WeeklyReport getLastWeekReport(Long userId) {
+        // 计算上周一的日期（本周一往前推 7 天）
+        LocalDate lastMonday = DateUtils.getMondayOfWeek(LocalDate.now()).minusWeeks(1);
+        QueryWrapper<WeeklyReport> wrapper = new QueryWrapper<>();
+        wrapper.eq("week_start_date", lastMonday);
+        wrapper.eq("user_id", userId);
+        return weeklyReportMapper.selectOne(wrapper);
+    }
+
 
     // 2. 保存周报（草稿），不校验周五
     @Override

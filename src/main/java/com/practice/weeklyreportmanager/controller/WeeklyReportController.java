@@ -3,12 +3,13 @@ package com.practice.weeklyreportmanager.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.practice.weeklyreportmanager.common.Result;
+import com.practice.weeklyreportmanager.dto.AIDraftRequest;
 import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
 import com.practice.weeklyreportmanager.entity.WeeklyReport;
+import com.practice.weeklyreportmanager.service.AIService;
 import com.practice.weeklyreportmanager.service.WeeklyReportService;
 import com.practice.weeklyreportmanager.vo.WeekGroupVO;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,9 +19,13 @@ import java.time.LocalDate;
 @RequestMapping("/api/reports")
 public class WeeklyReportController {
 
-    @Autowired
-    private WeeklyReportService weeklyReportService;
+    private final WeeklyReportService weeklyReportService;
+    private final AIService aiService;
 
+    public WeeklyReportController(WeeklyReportService weeklyReportService, AIService aiService) {
+        this.weeklyReportService = weeklyReportService;
+        this.aiService = aiService;
+    }
     @GetMapping("/current")
     public Result<WeeklyReport> getCurrentWeekReport(@RequestParam(required = false) Long userId) {
         Long effectiveUserId = userId != null ? userId : 1L;
@@ -96,5 +101,31 @@ public class WeeklyReportController {
         // 这里建议直接调用 Service，Service 里判断 null 并做相应处理
         Page<WeekGroupVO> page = weeklyReportService.getTeamViewReports(startDate, endDate, pageNo, pageSize);
         return Result.success(page);
+    }
+
+    /**
+     * AI 辅助撰写：根据用户输入的本周工作关键词/记录，生成结构化周报草稿，前端解析后自动填入表单
+     */
+    @PostMapping("/ai/draft")
+    public Result<WeeklyReportDTO> generateDraft(@Valid @RequestBody AIDraftRequest request) {
+        WeeklyReportDTO draft = aiService.generateDraft(request.getInput());
+        return Result.success(draft);
+    }
+
+    /**
+     * AI 完整性检查：按四个字段（总体进度/本周进展/下周目标/其他补充）分别判断，
+     * 并自动带上该用户上周的周报供模型做"承接关系"比对。
+     */
+    @PostMapping("/ai/check")
+    public Result<String> checkCompleteness(@RequestBody WeeklyReportDTO dto,
+                                            @RequestParam(required = false) Long userId) {
+        Long effectiveUserId = userId != null ? userId : 1L;
+        WeeklyReport lastWeekReport = weeklyReportService.getLastWeekReport(effectiveUserId);
+        return Result.success(aiService.checkCompleteness(dto, lastWeekReport));
+    }
+
+    @PostMapping("/ai/polish")
+    public Result<WeeklyReportDTO> polishReport(@RequestBody WeeklyReportDTO dto) {
+        return Result.success(aiService.polishReport(dto));
     }
 }
