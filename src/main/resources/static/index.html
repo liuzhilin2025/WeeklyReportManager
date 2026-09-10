@@ -271,6 +271,11 @@
 
     <!-- ========== Tab2: 团队视图 ========== -->
     <div id="tab-history" class="tab-pane">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <span class="text-muted small">按周查看全员提交情况；「AI 团队周报」汇总所选周所有已提交周报</span>
+            <button class="btn btn-ai" id="btnTeamSummary" onclick="loadTeamSummary()">AI 团队周报</button>
+        </div>
+
         <div class="filter-bar mb-3">
             <div class="row g-2 align-items-end">
                 <div class="col-md-3">
@@ -312,6 +317,11 @@
 
     <!-- ========== Tab3: 我的历史周报（个人） ========== -->
     <div id="tab-myhistory" class="tab-pane">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <span class="text-muted small">「AI 我的摘要」总结最近四周已提交的周报（草稿不参与）</span>
+            <button class="btn btn-ai" id="btnMySummary" onclick="loadMySummary()">AI 我的摘要</button>
+        </div>
+
         <div class="filter-bar mb-3">
             <div class="row g-2 align-items-end">
                 <div class="col-md-3">
@@ -400,6 +410,24 @@
             </div>
             <div class="modal-body">
                 <p class="report-field" id="aiCheckResult" style="white-space:pre-wrap; margin:0;">检查中...</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== AI 摘要弹窗（个人近四周 / 团队单周 共用） ========== -->
+<div class="modal fade" id="aiSummaryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="aiSummaryTitle">AI 摘要</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="aiSummaryBody">
+                <!-- 由 JS 动态填充 -->
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
@@ -755,6 +783,100 @@
                 aiChecking = false;
                 btn.disabled = false;
                 btn.textContent = '完整性检查';
+            });
+    }
+
+    // ==================== AI 摘要（个人近四周 / 团队单周） ====================
+    let aiSummaryLoading = false;   // 两个摘要共用一个锁，避免并发把两次请求都打到模型
+
+    // 把「标签 + 多行文本」渲染成详情卡片；内容里的 \n 由 .report-field 的 pre-wrap 原样换行展示
+    function renderSummaryFields(sections) {
+        return sections.map(s => `
+            <div class="detail-field">
+                <div class="field-label">${s.label}</div>
+                <p class="report-field">${escapeHtml(s.value) || '—'}</p>
+            </div>`).join('');
+    }
+
+    // 先弹出带 loading 文案的弹窗再发请求，否则模型几十秒才返回，用户会以为按钮没反应
+    function openSummaryModal(title) {
+        document.getElementById('aiSummaryTitle').innerText = title;
+        document.getElementById('aiSummaryBody').innerHTML =
+            '<div class="text-center text-muted py-4">AI 生成中，请稍候...</div>';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiSummaryModal')).show();
+    }
+
+    // 个人：总结当前用户最近 4 周已提交的周报
+    function loadMySummary() {
+        if (aiSummaryLoading) return;
+        const btn = document.getElementById('btnMySummary');
+        aiSummaryLoading = true;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+        openSummaryModal('我的近四周摘要');
+        fetch(`${BASE_URL}/api/reports/ai/summary?userId=${getCurrentUserId()}`)
+            .then(res => res.json())
+            .then(data => {
+                const body = document.getElementById('aiSummaryBody');
+                if (data.code === 200 && data.data) {
+                    const d = data.data;
+                    body.innerHTML = renderSummaryFields([
+                        { label: '核心产出', value: d.achievements },
+                        { label: '持续问题', value: d.issues },
+                        { label: '建议方向', value: d.suggestions }
+                    ]);
+                } else {
+                    body.innerHTML = '<div class="text-center text-danger py-4">'
+                        + escapeHtml(data.message || '生成失败，请稍后重试') + '</div>';
+                }
+            })
+            .catch(() => {
+                document.getElementById('aiSummaryBody').innerHTML =
+                    '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+            })
+            .finally(() => {
+                aiSummaryLoading = false;
+                btn.disabled = false;
+                btn.textContent = 'AI 我的摘要';
+            });
+    }
+
+    // 团队：汇总某一周所有已提交成员的周报（不传日期=本周；传了就取该日期所在周，后端会归一化到周一）
+    function loadTeamSummary() {
+        if (aiSummaryLoading) return;
+        const start = document.getElementById('startDate').value;
+        const btn = document.getElementById('btnTeamSummary');
+        aiSummaryLoading = true;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+        openSummaryModal('AI 团队周报' + (start ? `（${start} 所在周）` : '（本周）'));
+        const url = `${BASE_URL}/api/reports/ai/teamSummary` + (start ? `?weekStartDate=${start}` : '');
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                const body = document.getElementById('aiSummaryBody');
+                if (data.code === 200 && data.data) {
+                    const d = data.data;
+                    body.innerHTML = renderSummaryFields([
+                        { label: '团队进展', value: d.teamProgress },
+                        { label: '共性问题', value: d.commonIssues },
+                        { label: '协作需求', value: d.collaborationNeeds },
+                        // 未提交成员由系统算出来，空串表示全员已提交
+                        { label: '未提交成员', value: d.missingMembers || '无，全员已提交' }
+                    ]);
+                } else {
+                    body.innerHTML = '<div class="text-center text-danger py-4">'
+                        + escapeHtml(data.message || '生成失败，请稍后重试') + '</div>';
+                }
+            })
+            .catch(() => {
+                document.getElementById('aiSummaryBody').innerHTML =
+                    '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+            })
+            .finally(() => {
+                aiSummaryLoading = false;
+                btn.disabled = false;
+                btn.textContent = 'AI 团队周报';
             });
     }
 

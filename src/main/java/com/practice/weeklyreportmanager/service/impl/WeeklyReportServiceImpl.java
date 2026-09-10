@@ -440,4 +440,24 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
 
         return pageResult;
     }
+
+    // 8. 查询某用户在 [startMonday, endMonday] 区间内已提交的周报（AI 摘要用，草稿不参与总结）
+    @Override
+    public List<WeeklyReport> getSubmittedReportsBetween(Long userId, LocalDate startMonday, LocalDate endMonday) {
+        QueryWrapper<WeeklyReport> wrapper = new QueryWrapper<>();
+        wrapper.eq("user_id", userId);
+        wrapper.eq("status", "SUBMITTED");
+        wrapper.between("week_start_date", startMonday, endMonday);
+        wrapper.orderByAsc("week_start_date");
+        return weeklyReportMapper.selectList(wrapper);
+    }
+
+    @Override
+    public List<WeeklyReport> getSubmittedReportOfWeek(LocalDate weekStartDate) {
+        QueryWrapper<WeeklyReport> wrapper = new QueryWrapper<>();
+        wrapper.eq("week_start_date", weekStartDate);
+        wrapper.eq("status", "SUBMITTED");
+        wrapper.orderByAsc("user_id");
+        return weeklyReportMapper.selectList(wrapper);
+    }
 }

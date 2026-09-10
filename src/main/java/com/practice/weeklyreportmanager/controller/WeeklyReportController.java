@@ -4,7 +4,9 @@ package com.practice.weeklyreportmanager.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.practice.weeklyreportmanager.common.Result;
 import com.practice.weeklyreportmanager.dto.AIDraftRequest;
+import com.practice.weeklyreportmanager.dto.TeamSummaryDTO;
 import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
+import com.practice.weeklyreportmanager.dto.WeeklySummaryDTO;
 import com.practice.weeklyreportmanager.entity.WeeklyReport;
 import com.practice.weeklyreportmanager.service.AIService;
 import com.practice.weeklyreportmanager.service.WeeklyReportService;
@@ -127,5 +129,23 @@ public class WeeklyReportController {
     @PostMapping("/ai/polish")
     public Result<WeeklyReportDTO> polishReport(@RequestBody WeeklyReportDTO dto) {
         return Result.success(aiService.polishReport(dto));
+    }
+
+    @GetMapping("/ai/summary")
+    public Result<WeeklySummaryDTO> summarize(@RequestParam Long userId) {
+        WeeklySummaryDTO summary = aiService.summarizeHistory(userId);
+        return Result.success(summary);
+    }
+
+    /**
+     * AI 团队周报：汇总某一周所有已提交成员的周报，生成团队进展 / 共性问题 / 协作需求；
+     * 未提交成员由系统算出，放在 missingMembers 里返回。
+     * 示例：GET /api/reports/ai/teamSummary?weekStartDate=2026-09-07（不传默认本周）
+     */
+    @GetMapping("/ai/teamSummary")
+    public Result<TeamSummaryDTO> summarizeTeam(@RequestParam(required = false)
+                                                @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate weekStartDate) {
+        TeamSummaryDTO summaryDTO = aiService.summarizeTeam(weekStartDate);
+        return Result.success(summaryDTO);
     }
 }

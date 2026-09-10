@@ -1,9 +1,14 @@
 package com.practice.weeklyreportmanager.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.practice.weeklyreportmanager.dto.TeamSummaryDTO;
 import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
+import com.practice.weeklyreportmanager.dto.WeeklySummaryDTO;
 import com.practice.weeklyreportmanager.entity.WeeklyReport;
+import com.practice.weeklyreportmanager.utils.DateUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -14,6 +19,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -29,11 +38,19 @@ import java.util.Map;
  *   - prompts/ai-polish-system.txt： 润色的系统指令（纯静态）
  *   - prompts/ai-report-user.st：    生成草稿的用户消息模板，含 {userInput} 占位符
  */
+@Slf4j
 @Service
 public class AIService {
 
     /** 单个字段最大长度，与前端 textarea 的 maxlength 保持一致，超长会被截断 */
     private static final int MAX_FIELD_LENGTH = 1000;
+
+    /** 摘要每个部分的最大长度：prompt 约定最多 5 条 × 50 字，留一点余量给编号和换行 */
+    private static final int MAX_SUMMARY_LENGTH = 300;
+
+    /** 周报数据查询走 WeeklyReportService，AIService 只负责拼提示词和调模型（构造器注入，便于单测替换） */
+    private final WeeklyReportService weeklyReportService;
+    private final MockUserService mockUserService;
 
     /** Spring AI 的大模型客户端：负责发请求、收回答（由构造器注入的 Builder 构建） */
     private final ChatClient chatClient;
@@ -45,6 +62,10 @@ public class AIService {
     private final String systemCheckPrompt;
     /** AI润色 系统提示词全文*/
     private final String systemPolishPrompt;
+    /** AI总结摘要个人历史周报*/
+    private final String systemSummaryPrompt;
+    /** AI总结摘要团队历史周报*/
+    private final String systemTeamSummaryPrompt;
     /** 用户消息模板：渲染后生成 UserMessage，真正动态的内容只有用户输入的 userInput */
     private final PromptTemplate userPromptTemplate;
 
@@ -53,6 +74,7 @@ public class AIService {
      *
      * @param chatClientBuilder        Spring AI 自动配置好的 ChatClient 建造器（可定制模型/超时等）
      * @param objectMapper             Spring Boot 自动配置的 Jackson ObjectMapper
+     * @param weeklyReportService      周报业务服务，用于读取待总结的历史周报
      * @param systemPromptResource     生成草稿的系统提示词文件（classpath 根目录下的 prompts/ 目录）
      * @param systemCheckPromptResource 完整性检查的系统提示词文件
      * @param systemPolishPromptResource 润色的系统提示词文件
@@ -61,17 +83,25 @@ public class AIService {
      */
     public AIService(ChatClient.Builder chatClientBuilder,
                      ObjectMapper objectMapper,
+                     WeeklyReportService weeklyReportService,
+                     MockUserService mockUserService,
                      @Value("classpath:prompts/ai-report-system.txt") Resource systemPromptResource,
                      @Value("classpath:prompts/ai-check-system.txt") Resource systemCheckPromptResource,
                      @Value("classpath:prompts/ai-polish-system.txt") Resource systemPolishPromptResource,
+                     @Value("classpath:prompts/ai-summary-system.txt") Resource systemSummaryPromptResource,
+                     @Value("classpath:prompts/ai-team-summary-system.txt") Resource systemTeamSummaryPromptResource,
                      @Value("classpath:prompts/ai-report-user.st") Resource userPromptResource) throws IOException {
         this.chatClient = chatClientBuilder.build();
         this.objectMapper = objectMapper;
+        this.weeklyReportService = weeklyReportService;
+        this.mockUserService = mockUserService;
         // 把文件内容整体读成 UTF-8 字符串，只读一次，之后复用到每次请求
         this.systemPrompt = systemPromptResource.getContentAsString(StandardCharsets.UTF_8);
 
         this.systemCheckPrompt = systemCheckPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemPolishPrompt = systemPolishPromptResource.getContentAsString(StandardCharsets.UTF_8);
+        this.systemSummaryPrompt = systemSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
+        this.systemTeamSummaryPrompt = systemTeamSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
         // 用文件里的模板文本构造 PromptTemplate，调用时再往里填 {userInput}
         this.userPromptTemplate = new PromptTemplate(userPromptResource.getContentAsString(StandardCharsets.UTF_8));
     }
@@ -131,11 +161,66 @@ public class AIService {
                     dto.setOther(limit(extract(root, "other", "其他补充", "其他", "补充")));
                     return dto;
                 }
-            } catch (Exception e) {
-                // 解析失败（JSON 语法错误等），落到下方统一按"格式异常"提示
+            } catch (JsonProcessingException e) {
+                // JSON 语法错误：不往上抛，落到方法末尾统一的"格式异常"提示；
+                // 这里留日志（带原始内容），否则线上只能看到"格式异常"四个字，无从排查
+                log.warn("AI 草稿返回内容解析失败，原始内容：{}", raw, e);
             }
         }
         throw new IllegalArgumentException("AI 返回格式异常，请稍后重试");
+    }
+
+    private WeeklySummaryDTO parseSummary(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
+        }
+        String body = raw.trim();
+        int start = body.indexOf('{');
+        int end = body.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            try {
+                JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
+                // 确认解析出来的是JSON对象
+                if (root != null && root.isObject()) {
+                    WeeklySummaryDTO dto = new WeeklySummaryDTO();
+                    // 三个字段都是字符串（内部按 1、2、3 编号，换行分隔），复用 extract() 取值；
+                    // 截断用摘要自己的上限 MAX_SUMMARY_LENGTH，不套周报正文的 1000 字
+                    dto.setAchievements(limit(extract(root, "achievements", "核心产出", "主要成果", "本期产出"), MAX_SUMMARY_LENGTH));
+                    dto.setIssues(limit(extract(root, "issues", "问题", "持续问题", "风险"), MAX_SUMMARY_LENGTH));
+                    dto.setSuggestions(limit(extract(root, "suggestions", "建议", "关注方向", "下一步建议"), MAX_SUMMARY_LENGTH));
+                    return dto;
+                }
+            } catch (JsonProcessingException e) {
+                // 同上：落到统一的"格式异常"提示，日志里留原始内容便于排查
+                log.warn("AI 个人摘要返回内容解析失败，原始内容：{}", raw, e);
+            }
+        }
+        throw new IllegalArgumentException("AI返回格式异常，请稍后重试");
+    }
+
+    private TeamSummaryDTO parseTeamSummary(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
+        }
+        String body = raw.trim();
+        int start = body.indexOf('{');
+        int end = body.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            try {
+                JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
+                if (root != null && root.isObject()) {
+                    TeamSummaryDTO dto = new TeamSummaryDTO();
+                    dto.setTeamProgress(limit(extract(root, "teamProgress", "团队进展", "整体进展", "团队产出"), MAX_SUMMARY_LENGTH));
+                    dto.setCommonIssues(limit(extract(root, "commonIssues", "共性问题", "共同问题", "团队风险"), MAX_SUMMARY_LENGTH));
+                    dto.setCollaborationNeeds(limit(extract(root, "collaborationNeeds", "协作需求", "需要协作", "协作事项"), MAX_SUMMARY_LENGTH));
+                    return dto;
+                }
+            } catch (JsonProcessingException e) {
+                // 同上：落到统一的"格式异常"提示，日志里留原始内容便于排查
+                log.warn("AI 团队摘要返回内容解析失败，原始内容：{}", raw, e);
+            }
+        }
+        throw new IllegalArgumentException("AI返回格式异常，请稍后重试");
     }
 
     /**
@@ -161,7 +246,12 @@ public class AIService {
 
     /** 把超过 MAX_FIELD_LENGTH 的字段内容截断，避免破坏前端/数据库的字段长度限制 */
     private String limit(String value) {
-        return value.length() > MAX_FIELD_LENGTH ? value.substring(0, MAX_FIELD_LENGTH) : value;
+        return limit(value, MAX_FIELD_LENGTH);
+    }
+
+    /** 按指定上限截断：摘要部分（300 字）和周报正文（1000 字）上限不同，所以把上限做成参数 */
+    private String limit(String value, int maxLength) {
+        return value.length() > maxLength ? value.substring(0, maxLength) : value;
     }
 
     /**
@@ -278,5 +368,118 @@ public class AIService {
     /** null/空串显示为"（空）"，有内容则原样返回 */
     private String textOrEmpty(String value) {
         return isBlank(value) ? "（空）" : value;
+    }
+
+    /**
+     * 总结某用户最近 4 周已提交的周报。
+     * 结果按「用户 + 本周周一」缓存：同一周内重复请求直接命中缓存，不再重复调用大模型（省钱也省等待时间）。
+     */
+    @Cacheable(value = "aiSummary",
+            key = "#userId + '_' + T(com.practice.weeklyreportmanager.utils.DateUtils).getCurrentMonday()")
+    public WeeklySummaryDTO summarizeHistory(Long userId) {
+        List<LocalDate> mondayList = new ArrayList<>();
+        for (int i = 3; i >= 0; i--) {
+            mondayList.add(DateUtils.getMondayOfWeek(LocalDate.now().minusWeeks(i)));
+        }
+        // 只总结已提交的周报，草稿不参与（数据查询交给 WeeklyReportService）
+        List<WeeklyReport> reportList = weeklyReportService.getSubmittedReportsBetween(
+                userId, mondayList.get(0), mondayList.get(3));
+        if (reportList.size() < 2) {
+            throw new IllegalArgumentException("周报数量不足，无法生成摘要");
+        }
+        // 按实际查到的条数拼接：用户可能漏写某周，四周里查出 2~3 条是正常的，
+        // 不能按 0~3 的下标硬取，否则会 IndexOutOfBoundsException
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < reportList.size(); i++) {
+            WeeklyReport report = reportList.get(i);
+            sb.append("【第").append(i + 1).append("周 ")
+                    .append(DateUtils.formatWeekTitle(report.getWeekStartDate())).append("】")
+                    .append("\n总体进度：").append(report.getOverallProgress())
+                    .append("\n本周进展：").append(report.getWeeklyWorkReport())
+                    .append("\n下周目标：").append(report.getNextWeekPlan())
+                    .append("\n其他补充：").append(textOrEmpty(report.getOther()))
+                    .append('\n');
+        }
+        String userText = sb.toString();
+
+        String content = chatClient.prompt()
+                .system(systemSummaryPrompt)
+                .user(userText)
+                .call()
+                .content();
+
+        WeeklySummaryDTO dto = parseSummary(content);
+        // 三个部分是字符串，直接判空（原来用 toString() 判断，空列表的 "[]" 恒不为空，导致校验失效）
+        if (isBlank(dto.getAchievements()) && isBlank(dto.getIssues()) && isBlank(dto.getSuggestions())) {
+            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
+        }
+        return dto;
+    }
+
+    /**
+     * 汇总某一周所有已提交成员的周报，生成团队周报（团队进展 / 共性问题 / 协作需求）。
+     * 未提交成员不进模型，由系统算出后回填到 missingMembers。
+     * 结果按「归一化后的周一」缓存：跨周自动换 key，同周内重复请求不再重复调用大模型。
+     */
+    @Cacheable(value = "teamSummary",
+            key = "T(com.practice.weeklyreportmanager.utils.DateUtils)"
+                    + ".getMondayOfWeek(#weekStartDate != null ? #weekStartDate : T(java.time.LocalDate).now())")
+    public TeamSummaryDTO summarizeTeam(LocalDate weekStartDate) {
+        if (weekStartDate == null) {
+            weekStartDate = DateUtils.getCurrentMonday();
+        } else {
+            weekStartDate = DateUtils.getMondayOfWeek(weekStartDate);
+        }
+        List<WeeklyReport> submitted = weeklyReportService.getSubmittedReportOfWeek(weekStartDate);
+        if (submitted.isEmpty()) {
+            throw new IllegalArgumentException("本周暂无已提交周报");
+        } else if (submitted.size() < 2) {
+            throw new IllegalArgumentException("周报数量不足，无法生成周报");
+        }
+        List<MockUserService.MockUser> allmembers = mockUserService.getAllMembers();
+
+        Map<Long, WeeklyReport> reportIndex = new HashMap<>();
+        for (WeeklyReport report : submitted) {
+            Long key = report.getUserId();
+            reportIndex.put(key, report);
+        }
+
+        List<String> missingMembers = new ArrayList<>();
+        for (MockUserService.MockUser user : allmembers) {
+            Long key = user.getId();
+            WeeklyReport report = reportIndex.get(key);
+            if (report == null) {
+                missingMembers.add(user.getName());
+            }
+        }
+
+        // StringBuilder 必须在循环外声明：写在循环里的话，每轮都是新对象，出循环就拿不到了
+        StringBuilder sb = new StringBuilder();
+        for (WeeklyReport report : submitted) {
+            String userName = mockUserService.getUserName(report.getUserId());
+            sb.append("【").append(userName != null ? userName : "成员" + report.getUserId()).append("】")
+                    .append("\n总体进度：").append(report.getOverallProgress())
+                    .append("\n本周进展：").append(report.getWeeklyWorkReport())
+                    .append("\n下周目标：").append(report.getNextWeekPlan())
+                    .append("\n其他补充：").append(textOrEmpty(report.getOther()))
+                    .append('\n');
+        }
+        String userText = sb.toString();
+
+        String content = chatClient.prompt()
+                .system(systemTeamSummaryPrompt)
+                .user(userText)
+                .call()
+                .content();
+
+        TeamSummaryDTO dto = parseTeamSummary(content);
+        // 三个部分是字符串，直接判空（别用 toString()，空列表的 "[]" 恒不为空）
+        if (isBlank(dto.getTeamProgress()) && isBlank(dto.getCommonIssues())
+                && isBlank(dto.getCollaborationNeeds())) {
+            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
+        }
+        // 未提交成员是系统算出来的，不是模型生成的，所以放在解析之后回填
+        dto.setMissingMembers(String.join("、", missingMembers));
+        return dto;
     }
 }
