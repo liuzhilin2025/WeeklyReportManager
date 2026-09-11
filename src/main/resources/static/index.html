@@ -51,6 +51,8 @@
         .form-card { background: var(--bg-soft); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 20px; }
         .form-card .form-item + .form-item { margin-top: 18px; }
         .form-item .form-label { margin-bottom: 6px; }
+        /* 表单底部的 AI 工具栏：与输入区用虚线分隔，避免和右上角保存/提交挤在一起 */
+        .ai-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
 
         /* 筛选栏 */
         .filter-bar { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
@@ -62,9 +64,10 @@
         .table tbody tr.row-clickable { cursor: pointer; }
         .table tbody tr.row-clickable:hover { background: rgba(255,40,64,0.08); }
         /* 团队视图：未提交成员行高亮（#FFF0F0 极淡红底 + 左侧 4px 红条），醒目又不刺眼 */
-        .table tbody tr.row-missed, .table tbody tr.row-missed > * { background-color: #FFF0F0; }
-        .table tbody tr.row-missed td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
-        .table tbody tr.row-missed:hover, .table tbody tr.row-missed:hover > * { background-color: #FFE4E4; }
+        /* 未提交行：很淡的粉底 + 左侧细色条提示，避免整行刺眼的红 */
+        .table tbody tr.row-missed, .table tbody tr.row-missed > * { background-color: #FFF8F8; }
+        .table tbody tr.row-missed td:first-child { box-shadow: inset 4px 0 0 #F87171; }
+        .table tbody tr.row-missed:hover, .table tbody tr.row-missed:hover > * { background-color: #FEF2F2; }
         /* 第一列（成员/标题）和最后一列留出左右呼吸空间，避免贴边 */
         .table th:first-child, .table td:first-child { padding-left: 16px; }
         .table th:last-child, .table td:last-child { padding-right: 16px; }
@@ -82,15 +85,32 @@
         /* 按钮 */
         /* 保存按钮：白底黑字；hover 向左上浮动并露出红色 */
         .btn-save { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; box-shadow: 0 2px 6px rgba(17,17,20,0.08); transition: all .2s; }
-        .btn-save:hover, .btn-save:focus { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
+        /* 必须显式声明 border-color：否则 Bootstrap 的 .btn:hover 会把边框置为 transparent，左侧/上侧黑边消失 */
+        .btn-save:hover, .btn-save:focus { border-color: var(--ink); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
         /* 提交按钮：黑底白字；hover 向左上浮动并露出红色 */
         .btn-submit { background: linear-gradient(180deg, #2c2c33 0%, #111114 100%); border: none; color: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(17,17,20,0.25); transition: all .2s; }
-        .btn-submit:hover, .btn-submit:focus { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
+        /* 必须显式声明 color：#fff，否则 Bootstrap 的 .btn:hover 会把字色重置为默认深色，深底上变黑看不见 */
+        .btn-submit:hover, .btn-submit:focus { color: #fff; transform: translate(-2px, -2px); box-shadow: 3px 3px 0 0 var(--accent); }
         .btn-glass { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
         .btn-glass:hover { background: #fff5f6; color: var(--accent); border-color: var(--accent); }
         /* AI 辅助按钮：浅靛蓝底 + 靛蓝描边，沉稳安静，避免红=警示的突兀感 */
-        .btn-ai { background: #eef1fb; border: 1px solid #b7bee6; color: #46509b; border-radius: 8px; transition: all .2s; }
-        .btn-ai:hover, .btn-ai:focus { background: #dfe4f8; border-color: #46509b; color: #39418a; box-shadow: 0 4px 12px rgba(70,80,155,0.18); }
+        /* AI 按钮专属视觉：浅蓝→浅紫渐变描边（用双层背景 + border-box 实现），悬停填充极浅蓝紫 */
+        .btn-ai {
+            border: 1px solid transparent;
+            border-radius: 8px;
+            color: #46509b;
+            background:
+                linear-gradient(#ffffff, #ffffff) padding-box,
+                linear-gradient(135deg, #9ec5fe 0%, #c8b6ff 100%) border-box;
+            transition: color .2s, box-shadow .2s;
+        }
+        .btn-ai:hover, .btn-ai:focus {
+            color: #39418a;
+            background:
+                linear-gradient(#EEF2FF, #EEF2FF) padding-box,
+                linear-gradient(135deg, #7aa9ff 0%, #b49bf0 100%) border-box;
+            box-shadow: 0 4px 12px rgba(70,80,155,0.18);
+        }
         /* 重置按钮：白底黑字；hover 向上浮动，不变红 */
         .btn-reset { background: #fff; border: 1px solid var(--ink); color: var(--ink); border-radius: 8px; transition: all .2s; }
         .btn-reset:hover, .btn-reset:focus { background: #fff; border-color: var(--ink); color: var(--ink); transform: translateY(-1px); }
@@ -122,19 +142,42 @@
         @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
         /* 本周提交进度（右下角，点击跳转团队视图） */
-        .week-progress { position: fixed; right: 24px; bottom: 24px; width: 220px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; box-shadow: 0 4px 16px rgba(17,17,20,0.08); z-index: 1000; cursor: pointer; transition: transform .2s, box-shadow .2s; }
+        /* 悬浮的「本周提交进度」卡片：可点击收起 / 展开；收起后只剩一条小胶囊，避免遮挡表格 */
+        .week-progress { position: fixed; right: 24px; bottom: 24px; width: 220px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(17,17,20,0.08); z-index: 1000; cursor: pointer; user-select: none; transition: transform .2s, box-shadow .2s, width .2s, padding .2s; }
         .week-progress:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(17,17,20,0.12); }
-        .week-progress .wp-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .week-progress .wp-head { display: flex; align-items: center; gap: 6px; }
+        .week-progress .wp-title { font-size: 13px; font-weight: 600; }
         .week-progress .wp-title::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 1px; }
-        .week-progress .wp-title::after { content: ' →'; color: var(--accent); }
+        /* 收起态才显示的简报（已提交人数） */
+        .week-progress .wp-mini { display: none; margin-left: auto; font-size: 12px; color: var(--muted); }
+        .week-progress .wp-caret { font-size: 11px; color: var(--muted); transition: transform .2s; }
+        .week-progress .wp-body { margin-top: 8px; }
         .week-progress .wp-text { font-size: 12px; color: var(--muted); margin-top: 6px; }
         .week-progress .progress { background: #f0f0f0; }
         .week-progress .progress-bar { background: linear-gradient(90deg, #111114, #ff2840); }
+        /* 收起态：宽度自适应、隐藏进度条，只留标题 + 简报 + 箭头 */
+        .week-progress.collapsed { width: auto; padding: 8px 12px; }
+        .week-progress.collapsed .wp-body { display: none; }
+        .week-progress.collapsed .wp-mini { display: inline; }
+        .week-progress.collapsed .wp-caret { transform: rotate(-90deg); }
 
         /* 弹窗 */
         .modal-content { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 48px rgba(17,17,20,0.18); }
         .modal-header { border-bottom: 1px solid var(--line); }
         .modal-footer { border-top: 1px solid var(--line); }
+
+        /* AI 请求加载块：spinner + 已等待秒数 + 取消按钮 */
+        .ai-loading { text-align: center; padding: 28px 0; }
+        .ai-loading .spinner-border { width: 2rem; height: 2rem; }
+        /* AI 改写过的字段描边提示，便于用户对照原内容 */
+        .ai-changed { border-color: #46509b !important; box-shadow: 0 0 0 0.2rem rgba(70,80,155,0.18) !important; }
+
+        /* 润色对比弹窗：逐字段展示「原文 → 润色后」差异 */
+        .diff-field { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+        .diff-view { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+        .diff-del { background: #ffe3e3; color: #b42318; text-decoration: line-through; }
+        .diff-add { background: #e6f4ea; color: #137333; }
+        .diff-same { color: var(--muted); }
 
         /* 详情弹窗字段 */
         .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -147,8 +190,9 @@
         .detail-field .report-field { margin: 0; }
 
         /* 状态徽章：语义色（绿=已提交 / 红=未提交） */
-        .bg-success { background-color: #059669 !important; color: #fff !important; }        /* 已提交 = 绿 */
-        .bg-danger { background-color: var(--accent) !important; color: #fff !important; }   /* 未提交 = 红 */
+        /* 状态徽章：统一改成「浅色底 + 深色字」的柔和风格，醒目但不刺眼 */
+        .bg-success { background-color: #F0FDF4 !important; color: #16A34A !important; }   /* 已提交 = 柔和绿 */
+        .bg-danger { background-color: #FEF2F2 !important; color: #DC2626 !important; }    /* 未提交 = 柔和红 */
         .bg-info { background-color: var(--bg-soft) !important; color: var(--ink) !important; }    /* 计数徽章 = 中性 */
 
         /* 已提交时间文字 = 绿（与"已提交"徽章一致） */
@@ -225,13 +269,13 @@
             </div>
             <div id="reportActions" class="d-flex flex-column align-items-end gap-1">
                 <div class="d-flex flex-wrap gap-2 justify-content-end">
-                    <button class="btn btn-ai" onclick="openAIDraft()" id="btnAIDraft">AI 辅助撰写</button>
-                    <button class="btn btn-ai" onclick="polishCurrentReport()" id="btnPolish">AI 润色</button>
-                    <button class="btn btn-ai" onclick="checkCurrentReport()" id="btnCheck">完整性检查</button>
-                </div>
-                <div class="d-flex flex-wrap gap-2 justify-content-end">
                     <button class="btn btn-save" onclick="saveDraft()" id="btnSaveDraft">保存草稿</button>
                     <button class="btn btn-submit" onclick="submitReport()" id="btnSubmitCurrent">保存并提交</button>
+                </div>
+                <!-- AI 修改后出现：提示 + 一键撤销 -->
+                <div class="text-muted small d-none" id="aiUndoBar">
+                    <span id="aiUndoText"></span>
+                    <button class="btn btn-sm btn-glass ms-2" onclick="undoAIModify()">撤销 AI 修改</button>
                 </div>
                 <div class="text-muted small" id="draftSavedTime" style="display:none;"></div>
             </div>
@@ -266,14 +310,28 @@
                     <span class="char-counter" id="counter4">0 / 1000</span>
                 </div>
             </div>
+
+            <!-- AI 操作栏：放在输入框下方，填完内容顺手即可润色 / 检查 -->
+            <div class="ai-toolbar">
+                <span class="text-muted small me-auto">AI 辅助：填完内容后可润色或检查完整性</span>
+                <button class="btn btn-ai" onclick="openAIDraft()" id="btnAIDraft">AI 辅助撰写</button>
+                <button class="btn btn-ai" onclick="polishCurrentReport()" id="btnPolish">AI 润色</button>
+                <button class="btn btn-ai" onclick="checkCurrentReport()" id="btnCheck">完整性检查</button>
+            </div>
         </div>
     </div>
 
     <!-- ========== Tab2: 团队视图 ========== -->
     <div id="tab-history" class="tab-pane">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-            <span class="text-muted small">按周查看全员提交情况；「AI 团队周报」汇总所选周所有已提交周报</span>
-            <button class="btn btn-ai" id="btnTeamSummary" onclick="loadTeamSummary()">AI 团队周报</button>
+            <span class="text-muted small">按周查看全员提交情况</span>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-muted small">汇总周</span>
+                <button type="button" class="btn btn-sm btn-glass" onclick="shiftTeamWeek(-1)" title="上一周">‹</button>
+                <button type="button" class="btn btn-sm btn-glass" id="teamWeekLabel" onclick="resetTeamWeek()" title="点击回到本周" style="min-width:170px;">本周</button>
+                <button type="button" class="btn btn-sm btn-glass" onclick="shiftTeamWeek(1)" title="下一周">›</button>
+                <button class="btn btn-ai" id="btnTeamSummary" onclick="loadTeamSummary()" title="汇总所选周已提交的周报">AI 汇总团队周报</button>
+            </div>
         </div>
 
         <div class="filter-bar mb-3">
@@ -318,8 +376,8 @@
     <!-- ========== Tab3: 我的历史周报（个人） ========== -->
     <div id="tab-myhistory" class="tab-pane">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-            <span class="text-muted small">「AI 我的摘要」总结最近四周已提交的周报（草稿不参与）</span>
-            <button class="btn btn-ai" id="btnMySummary" onclick="loadMySummary()">AI 我的摘要</button>
+            <span class="text-muted small">「AI 汇总我的周报」总结最近 4 周已提交的周报（草稿不参与）</span>
+            <button class="btn btn-ai" id="btnMySummary" onclick="loadMySummary()" title="汇总最近 4 周已提交的周报">AI 汇总我的周报</button>
         </div>
 
         <div class="filter-bar mb-3">
@@ -364,7 +422,7 @@
 
 <!-- ========== 查看详情弹窗 ========== -->
 <div class="modal fade" id="detailModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="detailModalTitle">周报详情</h5>
@@ -389,8 +447,12 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="small text-muted mb-2">把你本周做的工作告诉 AI（可用换行或逗号分隔，描述越具体效果越好）。生成成功后会自动填入「填写周报」表单的四个文本框中，确认修改后再保存 / 提交。</div>
-                <textarea class="form-control" id="aiKeywords" rows="6" placeholder="例如：&#10;1. 完成登录模块重构并提测&#10;2. 排查订单接口偶发超时，定位为缓存击穿&#10;3. 整理接口文档，下周三完成评审"></textarea>
+                <div id="aiDraftForm">
+                    <div class="small text-muted mb-2">把你本周做的工作告诉 AI（可用换行或逗号分隔，描述越具体效果越好）。生成成功后会自动填入「填写周报」表单的四个文本框中，确认修改后再保存 / 提交。</div>
+                    <textarea class="form-control" id="aiKeywords" rows="6" placeholder="例如：&#10;1. 完成登录模块重构并提测&#10;2. 排查订单接口偶发超时，定位为缓存击穿&#10;3. 整理接口文档，下周三完成评审"></textarea>
+                </div>
+                <!-- 生成中显示：spinner + 已等待秒数 + 取消 -->
+                <div id="aiDraftLoading" class="d-none"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">取消</button>
@@ -409,7 +471,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="report-field" id="aiCheckResult" style="white-space:pre-wrap; margin:0;">检查中...</p>
+                <div class="report-field" id="aiCheckResult" style="white-space:pre-wrap; margin:0;">检查中...</div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
@@ -430,7 +492,55 @@
                 <!-- 由 JS 动态填充 -->
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-glass" id="btnCopySummary" onclick="copySummary()">复制</button>
+                <button type="button" class="btn btn-glass" id="btnDownloadSummary" onclick="downloadSummary()">下载</button>
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 通用确认弹窗（替代原生 confirm） ========== -->
+<div class="modal fade" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmTitle">确认</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="confirmMessage" style="white-space:pre-wrap;"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-reset" data-bs-dismiss="modal" id="confirmCancelBtn">取消</button>
+                <button type="button" class="btn btn-submit" id="confirmOkBtn">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== AI 润色对比弹窗：逐字段选择是否采纳 ========== -->
+<div class="modal fade" id="aiPolishDiffModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">AI 润色对比</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-3">
+                    <span class="diff-del">红色删除线</span> 为原文，<span class="diff-add">绿色</span> 为润色后；
+                    勾选要采纳的字段，未勾选的保持原样。
+                    <label class="ms-3" style="cursor:pointer;">
+                        <input type="checkbox" class="form-check-input me-1" id="polishSelectAll"
+                               onchange="selectAllPolishDiff(this.checked)">全选
+                    </label>
+                </div>
+                <div id="aiPolishDiffBody"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-glass" onclick="applyPolishDiff(false)">全部忽略</button>
+                <button type="button" class="btn btn-submit" onclick="applyPolishDiff(true)">应用选中</button>
             </div>
         </div>
     </div>
@@ -440,12 +550,18 @@
 <div id="toastContainer" class="toast-container"></div>
 
 <!-- 本周提交进度（右下角） -->
-<div class="week-progress" id="weekProgress">
-    <div class="wp-title">本周提交进度</div>
-    <div class="progress" style="height: 8px;">
-        <div class="progress-bar" id="weekProgressBar" style="width: 0%;"></div>
+<div class="week-progress" id="weekProgress" onclick="toggleWeekProgress()" title="点击收起 / 展开">
+    <div class="wp-head">
+        <span class="wp-title">本周提交进度</span>
+        <span class="wp-mini" id="weekProgressMini"></span>
+        <span class="wp-caret" id="weekProgressCaret">▾</span>
     </div>
-    <div class="wp-text" id="weekProgressText">-- / -- 人已提交</div>
+    <div class="wp-body" id="weekProgressBody">
+        <div class="progress" style="height: 8px;">
+            <div class="progress-bar" id="weekProgressBar" style="width: 0%;"></div>
+        </div>
+        <div class="wp-text" id="weekProgressText">-- / -- 人已提交</div>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -459,7 +575,8 @@
     const PAGE_SIZE = 10;
     let totalWeeks = 0;
     let currentData = [];
-    let saving = false;   // 防止保存/提交被重复点击
+    let savingForm = false;     // 主表单「保存草稿 / 保存并提交」互斥锁
+    let savingDetail = false;   // 详情弹窗「保存修改 / 提交」互斥锁
     let myCurrentPage = 1;   // 我的历史周报分页
     let myTotal = 0;         // 我的历史周报总条数
     let lastUserId = parseInt(document.getElementById('userIdSelect').value);   // 当前选中的用户（取消切换时还原）
@@ -468,16 +585,287 @@
     let aiPolish = false;       // 防止 AI 润色请求被重复提交
     let aiChecking = false;     // 防止 AI 完整性检查被重复提交
 
+    // ==================== AI 请求通用控制（超时 / 取消 / 计时） ====================
+    const AI_TIMEOUT_MS = 90000;   // 单次 AI 请求最长等待时间，超时自动中断
+    let aiAbort = null;            // 当前 AI 请求的 AbortController
+    let aiAbortReason = null;      // 中断原因：'user'（用户取消）/ 'timeout'（超时）
+    let aiTimerId = null;          // 「已等待 N 秒」计时器
+
+    // 渲染 AI 加载块：spinner + 提示文案 + 已等待秒数 + 取消按钮
+    function aiLoadingBlock(text) {
+        return `<div class="ai-loading">
+            <div class="spinner-border text-secondary mb-3" role="status" aria-hidden="true"></div>
+            <div class="text-muted">${escapeHtml(text)}</div>
+            <div class="text-muted small mt-1">已等待 <span class="ai-elapsed">0</span> 秒</div>
+            <button type="button" class="btn btn-sm btn-reset mt-3" onclick="cancelAIRequest()">取消</button>
+        </div>`;
+    }
+
+    // 启动计时：每秒刷新页面上所有 .ai-elapsed
+    function startAITimer() {
+        const startedAt = Date.now();
+        if (aiTimerId) clearInterval(aiTimerId);
+        aiTimerId = setInterval(() => {
+            const sec = Math.floor((Date.now() - startedAt) / 1000);
+            document.querySelectorAll('.ai-elapsed').forEach(el => el.textContent = sec);
+        }, 1000);
+    }
+
+    // 结束计时并清理
+    function stopAITimer() {
+        if (aiTimerId) { clearInterval(aiTimerId); aiTimerId = null; }
+    }
+
+    // 开始一次 AI 请求：创建可取消的 controller，并挂上超时自动中断
+    function newAIRequest() {
+        if (aiAbort) aiAbort.abort();   // 正常情况下不会并发，兜底
+        aiAbort = new AbortController();
+        aiAbortReason = null;
+        aiAbort._timeoutId = setTimeout(() => {
+            if (aiAbort) { aiAbortReason = 'timeout'; aiAbort.abort(); }
+        }, AI_TIMEOUT_MS);
+        startAITimer();
+        return aiAbort;
+    }
+
+    // 结束一次 AI 请求：清理计时器与超时定时器
+    function endAIRequest() {
+        stopAITimer();
+        if (aiAbort) { clearTimeout(aiAbort._timeoutId); aiAbort = null; }
+        aiAbortReason = null;
+    }
+
+    // 用户点「取消」：中断当前 AI 请求
+    function cancelAIRequest() {
+        if (aiAbort) { aiAbortReason = 'user'; aiAbort.abort(); }
+    }
+
+    // 统一的 AI 请求异常处理：区分「超时 / 用户取消 / 网络错误」
+    function handleAIError(err) {
+        if (err && err.name === 'AbortError') {
+            if (aiAbortReason === 'timeout') showToast('AI 响应超时，请稍后重试', 'error');
+            else showToast('已取消 AI 请求');
+        } else {
+            showToast('网络错误，请稍后重试', 'error');
+        }
+    }
+
+    // 给 AI 按钮切换「加载中」样式（spinner + 文案）
+    function setAIBtnLoading(btn, loading, loadingText, normalText) {
+        if (!btn) return;
+        btn.disabled = loading;
+        btn.innerHTML = loading
+            ? `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>${loadingText}`
+            : normalText;
+    }
+
+    // ==================== 通用确认弹窗（替代原生 confirm） ====================
+    // 返回 Promise<boolean>：点「确定」为 true，点「取消」/关闭为 false
+    function showConfirm(message, { title = '确认', okText = '确定', cancelText = '取消' } = {}) {
+        return new Promise(resolve => {
+            const modalEl = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').innerText = title;
+            document.getElementById('confirmMessage').innerText = message;
+            const okBtn = document.getElementById('confirmOkBtn');
+            const cancelBtn = document.getElementById('confirmCancelBtn');
+            okBtn.innerText = okText;
+            cancelBtn.innerText = cancelText;
+
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            let result = false;
+            const onOk = () => { result = true; modal.hide(); };
+            const onHidden = () => {
+                okBtn.removeEventListener('click', onOk);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                resolve(result);
+            };
+            okBtn.addEventListener('click', onOk);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
+    }
+
+    // ==================== AI 修改快照与撤销 ====================
+    let aiUndoSnapshot = null;    // AI 覆盖表单前的快照，供「撤销 AI 修改」还原
+    let aiHighlightTimer = null;  // 高亮自动清除定时器
+
+    // AI 改写字段后：高亮被改动的文本框，并显示撤销入口
+    function markAIChanges(before, after, label) {
+        aiUndoSnapshot = before;
+        const ids = ['content1', 'content2', 'content3', 'content4'];
+        const keys = ['overallProgress', 'weeklyWorkReport', 'nextWeekPlan', 'other'];
+        ids.forEach((id, i) => {
+            const el = document.getElementById(id);
+            el.classList.toggle('ai-changed', (before[keys[i]] || '') !== (after[keys[i]] || ''));
+        });
+        // 高亮在数秒后自动消失（用户开始编辑时也会立刻清除）
+        if (aiHighlightTimer) clearTimeout(aiHighlightTimer);
+        aiHighlightTimer = setTimeout(clearAIHighlights, 6000);
+        document.getElementById('aiUndoText').textContent = label + '，';
+        document.getElementById('aiUndoBar').classList.remove('d-none');
+    }
+
+    // 清除所有 AI 改动高亮
+    function clearAIHighlights() {
+        if (aiHighlightTimer) { clearTimeout(aiHighlightTimer); aiHighlightTimer = null; }
+        ['content1', 'content2', 'content3', 'content4'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('ai-changed');
+        });
+    }
+
+    // 撤销 AI 修改：还原到 AI 覆盖前的快照
+    function undoAIModify() {
+        if (!aiUndoSnapshot) return;
+        document.getElementById('content1').value = aiUndoSnapshot.overallProgress;
+        document.getElementById('content2').value = aiUndoSnapshot.weeklyWorkReport;
+        document.getElementById('content3').value = aiUndoSnapshot.nextWeekPlan;
+        document.getElementById('content4').value = aiUndoSnapshot.other;
+        updateCounters();
+        clearAIHighlights();
+        hideAIActionBar();
+        showToast('已撤销 AI 修改');
+    }
+
+    // 隐藏撤销入口并清空快照
+    function hideAIActionBar() {
+        aiUndoSnapshot = null;
+        const bar = document.getElementById('aiUndoBar');
+        if (bar) bar.classList.add('d-none');
+    }
+
+    // ==================== AI 润色对比（Diff） ====================
+    const POLISH_FIELDS = [
+        { key: 'overallProgress',  label: '总体进度', id: 'content1' },
+        { key: 'weeklyWorkReport', label: '本周进展', id: 'content2' },
+        { key: 'nextWeekPlan',     label: '下周目标', id: 'content3' },
+        { key: 'other',            label: '其他补充', id: 'content4' }
+    ];
+    let pendingPolish = null;   // { before, after } —— 等待用户勾选的润色结果
+
+    // 字符级差异：返回 [{type:'same'|'add'|'del', text}]，用于「原文 → 润色后」的高亮对比。
+    // 用 Array.from 按字符切分（兼容中文/emoji）；文本过长时降级为整体删除 + 整体新增，避免 O(n*m) 卡顿。
+    function diffChars(oldStr, newStr) {
+        const a = Array.from(oldStr || '');
+        const b = Array.from(newStr || '');
+        const n = a.length, m = b.length;
+        if (n * m > 1200000) {
+            const out = [];
+            if (oldStr) out.push({ type: 'del', text: oldStr });
+            if (newStr) out.push({ type: 'add', text: newStr });
+            return out;
+        }
+        // LCS 动态规划表，用于回溯出差异路径
+        const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+        for (let i = n - 1; i >= 0; i--) {
+            for (let j = m - 1; j >= 0; j--) {
+                dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+        const out = [];
+        const push = (type, ch) => {
+            const last = out[out.length - 1];
+            if (last && last.type === type) last.text += ch;   // 相邻同类型片段合并
+            else out.push({ type, text: ch });
+        };
+        let i = 0, j = 0;
+        while (i < n && j < m) {
+            if (a[i] === b[j]) { push('same', a[i]); i++; j++; }
+            else if (dp[i + 1][j] >= dp[i][j + 1]) { push('del', a[i]); i++; }
+            else { push('add', b[j]); j++; }
+        }
+        while (i < n) push('del', a[i++]);
+        while (j < m) push('add', b[j++]);
+        return out;
+    }
+
+    // 把 diffChars 的结果渲染成带红/绿高亮的 HTML
+    function renderDiffHtml(oldStr, newStr) {
+        const cls = { same: 'diff-same', add: 'diff-add', del: 'diff-del' };
+        return diffChars(oldStr, newStr)
+            .map(seg => `<span class="${cls[seg.type]}">${escapeHtml(seg.text)}</span>`)
+            .join('');
+    }
+
+    // 渲染对比弹窗内容：只列出「润色后非空且与原文不同」的字段
+    function renderPolishDiff(before, after) {
+        const body = document.getElementById('aiPolishDiffBody');
+        const blocks = [];
+        POLISH_FIELDS.forEach(f => {
+            const oldVal = (before[f.key] || '').trim();
+            const newVal = (after[f.key] || '').trim();
+            if (!newVal || newVal === oldVal) return;   // 未变化 / 无内容，不展示
+            blocks.push(`
+                <div class="diff-field">
+                    <label class="d-flex align-items-center gap-2 mb-2" style="cursor:pointer;">
+                        <input type="checkbox" class="form-check-input polish-diff-check" data-key="${f.key}" checked>
+                        <span class="fw-bold">${f.label}</span>
+                    </label>
+                    <div class="diff-view">${renderDiffHtml(oldVal, newVal)}</div>
+                </div>`);
+        });
+        body.innerHTML = blocks.length
+            ? blocks.join('')
+            : '<div class="text-center text-muted py-4">AI 认为内容无需修改</div>';
+        const all = document.getElementById('polishSelectAll');
+        if (all) { all.checked = true; all.disabled = blocks.length === 0; }
+    }
+
+    // 全选 / 全不选
+    function selectAllPolishDiff(checked) {
+        document.querySelectorAll('.polish-diff-check').forEach(cb => cb.checked = checked);
+    }
+
+    // 应用或忽略润色结果：apply=true 时只写回被勾选的字段
+    function applyPolishDiff(apply) {
+        const modalEl = document.getElementById('aiPolishDiffModal');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (apply && pendingPolish) {
+            const before = pendingPolish.before;
+            const after = pendingPolish.after;
+            let changed = false;
+            document.querySelectorAll('.polish-diff-check').forEach(cb => {
+                if (!cb.checked) return;
+                const field = POLISH_FIELDS.find(f => f.key === cb.dataset.key);
+                if (field && after[field.key]) {
+                    document.getElementById(field.id).value = after[field.key];
+                    changed = true;
+                }
+            });
+            if (changed) {
+                updateCounters();
+                markAIChanges(before, currentContentSnapshot(), 'AI 润色已应用');
+                showToast('已应用选中的润色内容');
+            } else {
+                showToast('未选择任何字段');
+            }
+        } else {
+            showToast('已忽略本次润色');
+        }
+        pendingPolish = null;
+        if (modal) modal.hide();
+    }
+
+    // 关闭弹窗（X / ESC / 点击遮罩）视为忽略，不写入表单
+    document.getElementById('aiPolishDiffModal').addEventListener('hidden.bs.modal', () => {
+        pendingPolish = null;
+    });
+
     // ==================== 用户切换 ====================
     // 切换用户时重新加载该用户的本周周报；若在个人历史页，也刷新历史
     // 若表单里有未保存的修改，先提示确认
-    document.getElementById('userIdSelect').addEventListener('change', function() {
+    document.getElementById('userIdSelect').addEventListener('change', async function() {
+        const select = this;
         const dirty = JSON.stringify(currentContentSnapshot()) !== JSON.stringify(lastLoadedContent);
-        if (dirty && !confirm('当前填写的内容尚未保存，切换用户将丢失，确定切换吗？')) {
-            this.value = lastUserId;   // 取消切换，还原选择
-            return;
+        if (dirty) {
+            const ok = await showConfirm('当前填写的内容尚未保存，切换用户将丢失，确定切换吗？',
+                { title: '未保存的修改', okText: '确定切换' });
+            if (!ok) {
+                select.value = lastUserId;   // 取消切换，还原选择
+                return;
+            }
         }
-        lastUserId = parseInt(this.value);
+        lastUserId = parseInt(select.value);
         loadCurrentWeek();
         if (document.getElementById('tab-myhistory').classList.contains('active')) {
             loadMyHistory();
@@ -537,6 +925,8 @@
                 }
                 // 记录本次加载的内容，用于切换用户时判断是否有未保存修改
                 lastLoadedContent = currentContentSnapshot();
+                clearAIHighlights();   // 新加载的内容与上一轮 AI 修改无关，清掉高亮与撤销入口
+                hideAIActionBar();
                 updateCounters();
             })
             .catch(() => showToast('加载失败，请稍后重试', 'error'));
@@ -564,12 +954,22 @@
         btn.textContent = can ? '保存并提交' : '仅周五可提交';
     }
 
+    // 主表单忙碌态：保存/提交两个按钮一起禁用，
+    // 避免一个在跑时另一个点击被 if (savingForm) 静默吞掉
+    function setFormBusy(busy) {
+        const save = document.getElementById('btnSaveDraft');
+        const submit = document.getElementById('btnSubmitCurrent');
+        if (save) save.disabled = busy;
+        if (submit) submit.disabled = busy;
+        if (!busy) updateSubmitButtons();   // 恢复提交按钮的文案与周五可用性
+    }
+
     // ==================== 保存草稿 ====================
     function saveDraft() {
-        if (saving) return;   // 防止重复点击
+        if (savingForm) return;   // 防止重复点击
         const btn = document.getElementById('btnSaveDraft');
-        saving = true;
-        btn.disabled = true;
+        savingForm = true;
+        setFormBusy(true);
         btn.textContent = '保存中...';
         const userId = getCurrentUserId();
         const payload = {
@@ -588,6 +988,8 @@
                 if (data.code === 200) {
                     showToast('草稿已保存');
                     lastLoadedContent = currentContentSnapshot();   // 已保存，不再视为未保存
+                    clearAIHighlights();   // 内容已落库，AI 修改视为被采纳
+                    hideAIActionBar();
                     showDraftSavedTime();   // 显示最后保存时间
                 } else {
                     showToast('保存失败：' + data.message, 'error');
@@ -595,9 +997,9 @@
             })
             .catch(() => showToast('网络错误，请稍后重试', 'error'))
             .finally(() => {
-                saving = false;
-                btn.disabled = false;
+                savingForm = false;
                 btn.textContent = '保存草稿';
+                setFormBusy(false);
             });
     }
 
@@ -617,12 +1019,14 @@
     }
 
     // ==================== 提交周报 ====================
-    function submitReport() {
-        if (saving) return;   // 防止重复点击
-        if (!confirm('确定提交本周周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。')) return;
+    async function submitReport() {
+        if (savingForm) return;   // 防止重复点击
+        const ok = await showConfirm('确定提交本周周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。',
+            { title: '提交周报', okText: '确定提交' });
+        if (!ok) return;
         const btn = document.getElementById('btnSubmitCurrent');
-        saving = true;
-        btn.disabled = true;
+        savingForm = true;
+        setFormBusy(true);
         btn.textContent = '提交中...';
         const userId = getCurrentUserId();
         const payload = {
@@ -648,20 +1052,34 @@
             })
             .catch(() => showToast('网络错误，请稍后重试', 'error'))
             .finally(() => {
-                saving = false;
-                updateSubmitButtons();   // 恢复按钮（周五重新可用）
+                savingForm = false;
+                setFormBusy(false);   // 恢复两个按钮（内部会重新套用周五可用性）
             });
     }
 
     // ==================== AI 辅助撰写 ====================
     // "AI 辅助撰写"按钮：弹出关键词输入框，AI 生成草稿后自动填入四个文本域
-    function openAIDraft() {
+    async function openAIDraft() {
         const snapshot = currentContentSnapshot();
         const hasContent = [snapshot.overallProgress, snapshot.weeklyWorkReport, snapshot.nextWeekPlan, snapshot.other].some(v => v && v.trim());
-        if (hasContent && !confirm('当前表单已有内容，AI 生成的草稿会将其覆盖，是否继续？')) return;
+        if (hasContent) {
+            const ok = await showConfirm('当前表单已有内容，AI 生成的草稿会将其覆盖（覆盖后可一键撤销），是否继续？',
+                { title: '覆盖当前内容', okText: '继续生成' });
+            if (!ok) return;
+        }
         document.getElementById('aiKeywords').value = '';
         bootstrap.Modal.getOrCreateInstance(document.getElementById('aiDraftModal')).show();
         setTimeout(() => document.getElementById('aiKeywords').focus(), 200);
+    }
+
+    // 切换草稿弹窗的「输入表单 / 加载中」两种状态
+    function showDraftLoading(show) {
+        const form = document.getElementById('aiDraftForm');
+        const box = document.getElementById('aiDraftLoading');
+        if (!form || !box) return;
+        form.classList.toggle('d-none', show);
+        box.classList.toggle('d-none', !show);
+        if (show) box.innerHTML = aiLoadingBlock('AI 正在生成草稿...');
     }
 
     // 请求后端生成草稿，成功后把四个字段填入表单，交给用户确认
@@ -674,22 +1092,26 @@
         }
         const btn = document.getElementById('btnGenerateDraft');
         aiGenerating = true;
-        btn.disabled = true;
-        btn.textContent = 'AI 生成中...';
+        setAIBtnLoading(btn, true, 'AI 生成中...', '生成草稿');
+        showDraftLoading(true);
+        const ctrl = newAIRequest();
         fetch(`${BASE_URL}/api/reports/ai/draft`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input: input })
+            body: JSON.stringify({ input: input }),
+            signal: ctrl.signal
         })
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
                     const d = data.data;
+                    const before = currentContentSnapshot();
                     document.getElementById('content1').value = d.overallProgress || '';
                     document.getElementById('content2').value = d.weeklyWorkReport || '';
                     document.getElementById('content3').value = d.nextWeekPlan || '';
                     document.getElementById('content4').value = d.other || '';
                     updateCounters();
+                    markAIChanges(before, currentContentSnapshot(), 'AI 草稿已填入表单');
                     const modal = bootstrap.Modal.getInstance(document.getElementById('aiDraftModal'));
                     if (modal) modal.hide();
                     showToast('AI 草稿已填入表单，请确认后再保存 / 提交');
@@ -697,11 +1119,12 @@
                     showToast('生成失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => handleAIError(err))
             .finally(() => {
                 aiGenerating = false;
-                btn.disabled = false;
-                btn.textContent = '生成草稿';
+                endAIRequest();
+                setAIBtnLoading(btn, false, '', '生成草稿');
+                showDraftLoading(false);
             });
     }
 
@@ -717,33 +1140,36 @@
         }
         const btn = document.getElementById('btnPolish');
         aiPolish = true;
-        btn.disabled = true;
-        btn.textContent = '润色中...';
+        // 润色没有弹窗，这里让按钮在请求期间变成「取消」，点击即可中断
+        btn.disabled = false;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>取消';
+        btn.onclick = cancelAIRequest;
+        const ctrl = newAIRequest();
         fetch(`${BASE_URL}/api/reports/ai/polish`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: ctrl.signal
         })
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
-                    const d = data.data;
-                    // 只写回非空字段：前端只填了部分时，没填的字段不会被 AI 或空串清掉
-                    if (d.overallProgress) document.getElementById('content1').value = d.overallProgress;
-                    if (d.weeklyWorkReport) document.getElementById('content2').value = d.weeklyWorkReport;
-                    if (d.nextWeekPlan) document.getElementById('content3').value = d.nextWeekPlan;
-                    if (d.other) document.getElementById('content4').value = d.other;
-                    updateCounters();
-                    showToast('AI 润色完成，已更新已填字段，请确认');
+                    // 不直接覆盖表单：先存下原文与润色结果，弹出对比弹窗由用户逐字段勾选
+                    const before = currentContentSnapshot();
+                    pendingPolish = { before: before, after: data.data };
+                    renderPolishDiff(before, data.data);
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('aiPolishDiffModal')).show();
                 } else {
                     showToast('润色失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => handleAIError(err))
             .finally(() => {
                 aiPolish = false;
+                endAIRequest();
                 btn.disabled = false;
-                btn.textContent = 'AI 润色';
+                btn.onclick = polishCurrentReport;
+                btn.innerHTML = 'AI 润色';
             });
     }
 
@@ -761,36 +1187,49 @@
         }
         const btn = document.getElementById('btnCheck');
         aiChecking = true;
-        btn.disabled = true;
-        btn.textContent = '检查中...';
+        setAIBtnLoading(btn, true, '检查中...', '完整性检查');
+        // 先弹窗展示加载态，模型返回后再替换为检查结果
+        const resultEl = document.getElementById('aiCheckResult');
+        resultEl.innerHTML = aiLoadingBlock('AI 正在检查完整性...');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiCheckModal')).show();
+        const ctrl = newAIRequest();
         fetch(`${BASE_URL}/api/reports/ai/check?userId=${getCurrentUserId()}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: ctrl.signal
         })
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200) {
-                    const resultEl = document.getElementById('aiCheckResult');
                     resultEl.textContent = data.data || '内容完整，无缺失项';
-                    bootstrap.Modal.getOrCreateInstance(document.getElementById('aiCheckModal')).show();
                 } else {
-                    showToast('检查失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
+                    resultEl.innerHTML = '<span class="text-danger">检查失败：'
+                        + escapeHtml(data.message || 'AI 返回格式异常，请重试') + '</span>';
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => {
+                if (err && err.name === 'AbortError') {
+                    resultEl.textContent = (aiAbortReason === 'timeout') ? 'AI 响应超时，请关闭后重试' : '已取消检查';
+                } else {
+                    resultEl.textContent = '网络错误，请稍后重试';
+                }
+            })
             .finally(() => {
                 aiChecking = false;
-                btn.disabled = false;
-                btn.textContent = '完整性检查';
+                endAIRequest();
+                setAIBtnLoading(btn, false, '', '完整性检查');
             });
     }
 
     // ==================== AI 摘要（个人近四周 / 团队单周） ====================
     let aiSummaryLoading = false;   // 两个摘要共用一个锁，避免并发把两次请求都打到模型
+    let lastSummaryText = '';       // 最近一次渲染的摘要纯文本（供复制 / 下载）
 
     // 把「标签 + 多行文本」渲染成详情卡片；内容里的 \n 由 .report-field 的 pre-wrap 原样换行展示
     function renderSummaryFields(sections) {
+        // 同时留一份纯文本，供「复制 / 下载」使用
+        lastSummaryText = sections.map(s => `${s.label}：\n${s.value || '—'}`).join('\n\n');
         return sections.map(s => `
             <div class="detail-field">
                 <div class="field-label">${s.label}</div>
@@ -798,23 +1237,73 @@
             </div>`).join('');
     }
 
-    // 先弹出带 loading 文案的弹窗再发请求，否则模型几十秒才返回，用户会以为按钮没反应
+    // 摘要弹窗底部「复制 / 下载」是否可用（加载中禁用）
+    function setSummaryToolsEnabled(enabled) {
+        ['btnCopySummary', 'btnDownloadSummary'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !enabled;
+        });
+    }
+
+    // 先弹出带 loading 的弹窗再发请求，否则模型几十秒才返回，用户会以为按钮没反应
     function openSummaryModal(title) {
         document.getElementById('aiSummaryTitle').innerText = title;
-        document.getElementById('aiSummaryBody').innerHTML =
-            '<div class="text-center text-muted py-4">AI 生成中，请稍候...</div>';
+        document.getElementById('aiSummaryBody').innerHTML = aiLoadingBlock('AI 生成中，请稍候...');
+        lastSummaryText = '';
+        setSummaryToolsEnabled(false);
         bootstrap.Modal.getOrCreateInstance(document.getElementById('aiSummaryModal')).show();
+    }
+
+    // 两个摘要按钮共用一把锁：请求期间同时禁用，只有发起方显示「生成中...」
+    function setSummaryButtonsLoading(activeBtnId, loading) {
+        const my = document.getElementById('btnMySummary');
+        const team = document.getElementById('btnTeamSummary');
+        [my, team].forEach(b => { if (b) b.disabled = loading; });
+        if (loading) {
+            setAIBtnLoading(document.getElementById(activeBtnId), true, '生成中...', '');
+        } else {
+            if (my) my.innerHTML = 'AI 汇总我的周报';
+            if (team) team.innerHTML = 'AI 汇总团队周报';
+        }
+    }
+
+    // 复制当前摘要到剪贴板
+    function copySummary() {
+        if (!lastSummaryText) { showToast('暂无可复制的内容', 'error'); return; }
+        const text = document.getElementById('aiSummaryTitle').innerText + '\n\n' + lastSummaryText;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text)
+                .then(() => showToast('摘要已复制到剪贴板'))
+                .catch(() => showToast('复制失败，请手动选择文本', 'error'));
+        } else {
+            showToast('当前浏览器不支持自动复制', 'error');
+        }
+    }
+
+    // 下载当前摘要为 txt 文件
+    function downloadSummary() {
+        if (!lastSummaryText) { showToast('暂无可下载的内容', 'error'); return; }
+        const title = document.getElementById('aiSummaryTitle').innerText;
+        const blob = new Blob([title + '\n\n' + lastSummaryText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = title + '.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showToast('已开始下载');
     }
 
     // 个人：总结当前用户最近 4 周已提交的周报
     function loadMySummary() {
         if (aiSummaryLoading) return;
-        const btn = document.getElementById('btnMySummary');
         aiSummaryLoading = true;
-        btn.disabled = true;
-        btn.textContent = '生成中...';
+        setSummaryButtonsLoading('btnMySummary', true);
         openSummaryModal('我的近四周摘要');
-        fetch(`${BASE_URL}/api/reports/ai/summary?userId=${getCurrentUserId()}`)
+        const ctrl = newAIRequest();
+        fetch(`${BASE_URL}/api/reports/ai/summary?userId=${getCurrentUserId()}`, { signal: ctrl.signal })
             .then(res => res.json())
             .then(data => {
                 const body = document.getElementById('aiSummaryBody');
@@ -825,33 +1314,86 @@
                         { label: '持续问题', value: d.issues },
                         { label: '建议方向', value: d.suggestions }
                     ]);
+                    setSummaryToolsEnabled(true);
                 } else {
                     body.innerHTML = '<div class="text-center text-danger py-4">'
                         + escapeHtml(data.message || '生成失败，请稍后重试') + '</div>';
                 }
             })
-            .catch(() => {
-                document.getElementById('aiSummaryBody').innerHTML =
-                    '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+            .catch(err => {
+                const body = document.getElementById('aiSummaryBody');
+                if (err && err.name === 'AbortError') {
+                    body.innerHTML = '<div class="text-center text-muted py-4">'
+                        + (aiAbortReason === 'timeout' ? 'AI 响应超时，请关闭后重试' : '已取消生成') + '</div>';
+                } else {
+                    body.innerHTML = '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+                }
             })
             .finally(() => {
                 aiSummaryLoading = false;
-                btn.disabled = false;
-                btn.textContent = 'AI 我的摘要';
+                endAIRequest();
+                setSummaryButtonsLoading('btnMySummary', false);
             });
     }
 
-    // 团队：汇总某一周所有已提交成员的周报（不传日期=本周；传了就取该日期所在周，后端会归一化到周一）
+    // ==================== 团队汇总的「周」选择 ====================
+    // 团队周报是「单周」汇总，与上方「查找周报」的日期区间是两回事，
+    // 所以这里单独维护一个「汇总周」（用该周周一表示），不再借用 startDate。
+    let teamSummaryMonday = mondayOf(new Date());
+
+    // 返回某日期所在周的周一（本地时间，周一为一周起点）
+    function mondayOf(date) {
+        const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        d.setDate(d.getDate() - (d.getDay() + 6) % 7);   // 周日=0→退6天，周一=1→退0天
+        return d;
+    }
+
+    // Date → YYYY-MM-DD（用于接口参数）
+    function formatDateYmd(d) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    // Date → MM.dd（与后端周报标题 formatWeekTitle 的显示保持一致）
+    function formatMd(d) {
+        return `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    // 汇总周的显示文案：与周报标题一致，一周只算周一到周五（MM.dd~MM.dd）
+    function teamWeekRangeLabel() {
+        const friday = new Date(teamSummaryMonday);
+        friday.setDate(friday.getDate() + 4);
+        return `${formatMd(teamSummaryMonday)}~${formatMd(friday)}`;
+    }
+
+    // 刷新「汇总周」标签：显示周一到周五的区间，本周额外标注
+    function updateTeamWeekLabel() {
+        const isThisWeek = formatDateYmd(teamSummaryMonday) === formatDateYmd(mondayOf(new Date()));
+        document.getElementById('teamWeekLabel').textContent =
+            teamWeekRangeLabel() + (isThisWeek ? '（本周）' : '');
+    }
+
+    // 前后翻周
+    function shiftTeamWeek(deltaWeeks) {
+        teamSummaryMonday.setDate(teamSummaryMonday.getDate() + deltaWeeks * 7);
+        updateTeamWeekLabel();
+    }
+
+    // 回到本周
+    function resetTeamWeek() {
+        teamSummaryMonday = mondayOf(new Date());
+        updateTeamWeekLabel();
+    }
+
+    // 团队：汇总「汇总周」所有已提交成员的周报（后端会把日期归一化到周一）
     function loadTeamSummary() {
         if (aiSummaryLoading) return;
-        const start = document.getElementById('startDate').value;
-        const btn = document.getElementById('btnTeamSummary');
+        const weekStart = formatDateYmd(teamSummaryMonday);   // 用独立的汇总周，不再取查找用的 startDate
         aiSummaryLoading = true;
-        btn.disabled = true;
-        btn.textContent = '生成中...';
-        openSummaryModal('AI 团队周报' + (start ? `（${start} 所在周）` : '（本周）'));
-        const url = `${BASE_URL}/api/reports/ai/teamSummary` + (start ? `?weekStartDate=${start}` : '');
-        fetch(url)
+        setSummaryButtonsLoading('btnTeamSummary', true);
+        openSummaryModal('AI 团队周报（' + teamWeekRangeLabel() + '）');
+        const url = `${BASE_URL}/api/reports/ai/teamSummary?weekStartDate=${weekStart}`;
+        const ctrl = newAIRequest();
+        fetch(url, { signal: ctrl.signal })
             .then(res => res.json())
             .then(data => {
                 const body = document.getElementById('aiSummaryBody');
@@ -864,19 +1406,25 @@
                         // 未提交成员由系统算出来，空串表示全员已提交
                         { label: '未提交成员', value: d.missingMembers || '无，全员已提交' }
                     ]);
+                    setSummaryToolsEnabled(true);
                 } else {
                     body.innerHTML = '<div class="text-center text-danger py-4">'
                         + escapeHtml(data.message || '生成失败，请稍后重试') + '</div>';
                 }
             })
-            .catch(() => {
-                document.getElementById('aiSummaryBody').innerHTML =
-                    '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+            .catch(err => {
+                const body = document.getElementById('aiSummaryBody');
+                if (err && err.name === 'AbortError') {
+                    body.innerHTML = '<div class="text-center text-muted py-4">'
+                        + (aiAbortReason === 'timeout' ? 'AI 响应超时，请关闭后重试' : '已取消生成') + '</div>';
+                } else {
+                    body.innerHTML = '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+                }
             })
             .finally(() => {
                 aiSummaryLoading = false;
-                btn.disabled = false;
-                btn.textContent = 'AI 团队周报';
+                endAIRequest();
+                setSummaryButtonsLoading('btnTeamSummary', false);
             });
     }
 
@@ -927,7 +1475,7 @@
             const totalMembers = group.members.length;
             const allSubmitted = submittedCount === totalMembers;
             // 卡片头带提交摘要；固定列宽保证每周卡片列对齐；table-responsive 窄屏横向滚动
-            html += `<div class="card mb-3"><div class="card-header bg-light d-flex justify-content-between align-items-center"><span class="fw-bold">${group.weekTitle}</span><span class="badge ${allSubmitted ? 'bg-success' : 'bg-info'}">${submittedCount}/${totalMembers} 已提交</span></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-striped mb-0" style="table-layout:fixed; min-width:640px;"><colgroup><col style="width:16%"><col style="width:30%"><col style="width:24%"><col style="width:30%"></colgroup><thead><tr><th>成员</th><th>最近更新</th><th>提交状态</th><th>操作</th></tr></thead><tbody>`;
+            html += `<div class="card mb-3"><div class="card-header bg-light d-flex justify-content-between align-items-center"><span class="fw-bold">${escapeHtml(group.weekTitle)}</span><span class="badge ${allSubmitted ? 'bg-success' : 'bg-info'}">${submittedCount}/${totalMembers} 已提交</span></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-striped mb-0" style="table-layout:fixed; min-width:640px;"><colgroup><col style="width:16%"><col style="width:30%"><col style="width:24%"><col style="width:30%"></colgroup><thead><tr><th>成员</th><th>最近更新</th><th>提交状态</th><th>操作</th></tr></thead><tbody>`;
             for (const member of group.members) {
                 const statusMap = {
                     'SUBMITTED': '已提交',
@@ -1036,7 +1584,7 @@
                             <div class="mb-3">
                                 <label class="form-label fw-bold">${f.label}</label>
                                 <div class="position-relative">
-                                    <textarea class="form-control" id="${f.editId}" rows="3" maxlength="1000" oninput="updateDetailCounter('${f.counterId}', this)">${escapeHtml(val)}</textarea>
+                                    <textarea class="form-control" id="${f.editId}" rows="6" maxlength="1000" oninput="updateDetailCounter('${f.counterId}', this)">${escapeHtml(val)}</textarea>
                                     <span class="char-counter" id="${f.counterId}">${val.length} / 1000</span>
                                 </div>
                             </div>`;
@@ -1060,8 +1608,8 @@
                         <button class="btn btn-submit" onclick="submitDetailReport(${r.id})" ${canSubmit ? '' : 'disabled'}>${canSubmit ? '提交' : '仅周五可提交'}</button>`;
                     }
 
-                    const modal = new bootstrap.Modal(document.getElementById('detailModal'));
-                    modal.show();
+                    // 用 getOrCreateInstance 复用同一个实例，避免每次打开都 new 导致 backdrop 叠加
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('detailModal')).show();
                 } else {
                     body.innerHTML = '<div class="text-center text-danger py-4">加载失败：' + escapeHtml(data.message || '数据异常') + '</div>';
                 }
@@ -1080,10 +1628,21 @@
         counter.classList.toggle('over', len > 1000);
     }
 
+    // 详情弹窗忙碌态：保存/提交两个按钮一起禁用；
+    // 恢复时重新套用「仅周五可提交」，避免把本应禁用的提交按钮放开
+    function setDetailBusy(busy) {
+        document.querySelectorAll('#detailActions button').forEach(b => { b.disabled = busy; });
+        if (!busy) {
+            const submitBtn = document.querySelector('#detailActions button.btn-submit');
+            if (submitBtn) submitBtn.disabled = !isFriday();
+        }
+    }
+
     // 在弹窗里保存修改
     function saveDetailEdit(reportId) {
-        if (saving) return;   // 防止重复点击
-        saving = true;
+        if (savingDetail) return;   // 防止重复点击
+        savingDetail = true;
+        setDetailBusy(true);
         const payload = {
             overallProgress: document.getElementById('editOverallProgress').value,
             weeklyWorkReport: document.getElementById('editWeeklyWorkReport').value,
@@ -1113,14 +1672,17 @@
                 }
             })
             .catch(() => showToast('网络错误，请稍后重试', 'error'))
-            .finally(() => { saving = false; });
+            .finally(() => { savingDetail = false; setDetailBusy(false); });
     }
 
     // 在弹窗里提交
-    function submitDetailReport(reportId) {
-        if (saving) return;   // 防止重复点击
-        if (!confirm('确定提交这份周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。')) return;
-        saving = true;
+    async function submitDetailReport(reportId) {
+        if (savingDetail) return;   // 防止重复点击
+        const ok = await showConfirm('确定提交这份周报吗？提交后本周内仍可修改并再次提交，过周后将锁定。',
+            { title: '提交周报', okText: '确定提交' });
+        if (!ok) return;
+        savingDetail = true;
+        setDetailBusy(true);
 
         const payload = {
             overallProgress: document.getElementById('editOverallProgress').value,
@@ -1149,7 +1711,7 @@
                 }
             })
             .catch(() => showToast('网络错误，请稍后重试', 'error'))
-            .finally(() => { saving = false; });
+            .finally(() => { savingDetail = false; setDetailBusy(false); });
     }
 
     // ==================== 分页 ====================
@@ -1370,9 +1932,23 @@
                     const pct = total > 0 ? Math.round(submitted / total * 100) : 0;
                     document.getElementById('weekProgressBar').style.width = pct + '%';
                     document.getElementById('weekProgressText').innerText = `${submitted} / ${total} 人已提交`;
+                    document.getElementById('weekProgressMini').innerText = `${submitted}/${total}`;
                 }
             })
             .catch(() => showToast('加载失败，请稍后重试', 'error'));
+    }
+
+    // 「本周提交进度」悬浮卡：点击收起 / 展开，状态记在 localStorage，收起后不再遮挡表格
+    function toggleWeekProgress() {
+        const collapsed = document.getElementById('weekProgress').classList.toggle('collapsed');
+        try { localStorage.setItem('weekProgressCollapsed', collapsed ? '1' : '0'); } catch (e) { /* 隐私模式下忽略 */ }
+    }
+
+    // 启动时恢复上次的收起 / 展开状态
+    function initWeekProgress() {
+        let collapsed = false;
+        try { collapsed = localStorage.getItem('weekProgressCollapsed') === '1'; } catch (e) { /* 隐私模式下忽略 */ }
+        if (collapsed) document.getElementById('weekProgress').classList.add('collapsed');
     }
 
     // 字数计数
@@ -1391,7 +1967,8 @@
         for (let i = 1; i <= 4; i++) {
             const ta = document.getElementById('content' + i);
             if (ta) {
-                ta.addEventListener('input', updateCounters);
+                // 用户一开始手动编辑就清掉 AI 高亮（撤销入口保留）
+                ta.addEventListener('input', () => { updateCounters(); clearAIHighlights(); });
             }
         }
         updateCounters();
@@ -1407,8 +1984,10 @@
         }
         updateWeekSubtitle();
         updateSubmitButtons();
+        initWeekProgress();      // 恢复悬浮进度卡的收起状态
         loadWeekProgress();
         initCharCounters();
+        updateTeamWeekLabel();   // 初始化团队汇总的「汇总周」标签
         // 默认显示本周周报（click 会触发 loadCurrentWeek，避免重复请求）
         document.querySelector('.tab-header span.active').click();
     };

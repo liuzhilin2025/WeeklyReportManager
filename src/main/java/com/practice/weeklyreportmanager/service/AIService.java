@@ -26,17 +26,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AI 辅助撰写服务。
+ * AI 辅助撰写服务：把用户输入 / 已有周报组装成对话请求发给大模型，再把返回结果解析成前端要用的结构。
  *
  * 职责：
- * 1. 把「提示词模板文件 + 用户输入」组装成一次大模型对话请求（借助 ChatClient）；
- * 2. 把模型返回的原始文本解析成 WeeklyReportDTO，供前端回填到周报表单。
+ * 1. 把「提示词模板文件 + 动态内容」组装成一次大模型对话请求（借助 ChatClient）；
+ * 2. 把模型返回的原始文本解析成 DTO，供前端回填 / 展示。
+ *
+ * 对外提供 5 类能力：
+ *   - generateDraft      生成草稿（结构化 DTO）
+ *   - checkCompleteness  完整性检查（自由文本）
+ *   - polishReport       润色（结构化 DTO）
+ *   - summarizeHistory   个人近 4 周摘要（结构化 DTO）
+ *   - summarizeTeam      团队单周汇总（结构化 DTO）
  *
  * 提示词不再写死在 Java 里，而是放在 resources 下的模板文件中：
- *   - prompts/ai-report-system.txt：生成草稿的系统指令（纯静态，启动时读入内存）
- *   - prompts/ai-check-system.txt：  完整性检查的系统指令（纯静态）
- *   - prompts/ai-polish-system.txt： 润色的系统指令（纯静态）
- *   - prompts/ai-report-user.st：    生成草稿的用户消息模板，含 {userInput} 占位符
+ *   - prompts/ai-report-system.txt：       生成草稿的系统指令（纯静态，启动时读入内存）
+ *   - prompts/ai-check-system.txt：        完整性检查的系统指令（纯静态）
+ *   - prompts/ai-polish-system.txt：       润色的系统指令（纯静态）
+ *   - prompts/ai-summary-system.txt：      个人摘要的系统指令（纯静态）
+ *   - prompts/ai-team-summary-system.txt： 团队摘要的系统指令（纯静态）
+ *   - prompts/ai-report-user.st：          生成草稿的用户消息模板，含 {userInput} 占位符
  */
 @Slf4j
 @Service
@@ -56,30 +65,32 @@ public class AIService {
     private final ChatClient chatClient;
     /** Jackson 的 JSON 工具，用来把模型返回的文本解析成 JsonNode 树 */
     private final ObjectMapper objectMapper;
-    /** 系统提示词全文，启动时从 classpath 的 txt 文件读入（静态文本，不含占位符） */
+    /** 生成草稿的系统提示词，启动时从 ai-report-system.txt 读入（静态文本，不含占位符） */
     private final String systemPrompt;
-    /** AI检查 系统提示词全文 */
+    /** 完整性检查的系统提示词，来自 ai-check-system.txt */
     private final String systemCheckPrompt;
-    /** AI润色 系统提示词全文*/
+    /** 润色的系统提示词，来自 ai-polish-system.txt */
     private final String systemPolishPrompt;
-    /** AI总结摘要个人历史周报*/
+    /** 个人摘要的系统提示词，来自 ai-summary-system.txt */
     private final String systemSummaryPrompt;
-    /** AI总结摘要团队历史周报*/
+    /** 团队摘要的系统提示词，来自 ai-team-summary-system.txt */
     private final String systemTeamSummaryPrompt;
     /** 用户消息模板：渲染后生成 UserMessage，真正动态的内容只有用户输入的 userInput */
     private final PromptTemplate userPromptTemplate;
-
     /**
      * 构造器注入：AIService 被 @Service 托管，Spring 启动时会自动调用该构造器并传入所有依赖。
      *
-     * @param chatClientBuilder        Spring AI 自动配置好的 ChatClient 建造器（可定制模型/超时等）
-     * @param objectMapper             Spring Boot 自动配置的 Jackson ObjectMapper
-     * @param weeklyReportService      周报业务服务，用于读取待总结的历史周报
-     * @param systemPromptResource     生成草稿的系统提示词文件（classpath 根目录下的 prompts/ 目录）
-     * @param systemCheckPromptResource 完整性检查的系统提示词文件
-     * @param systemPolishPromptResource 润色的系统提示词文件
-     * @param userPromptResource       生成草稿的用户消息模板文件
-     * @throws IOException             资源文件缺失或读取失败时抛出，导致应用启动失败（fail-fast）
+     * @param chatClientBuilder               Spring AI 自动配置好的 ChatClient 建造器（可定制模型/超时等）
+     * @param objectMapper                    Spring Boot 自动配置的 Jackson ObjectMapper
+     * @param weeklyReportService             周报业务服务，用于读取待总结的历史周报
+     * @param mockUserService                 模拟用户服务，提供成员名单与用户名（团队汇总用）
+     * @param systemPromptResource            生成草稿的系统提示词文件（classpath 根目录下的 prompts/ 目录）
+     * @param systemCheckPromptResource       完整性检查的系统提示词文件
+     * @param systemPolishPromptResource      润色的系统提示词文件
+     * @param systemSummaryPromptResource     个人摘要的系统提示词文件
+     * @param systemTeamSummaryPromptResource 团队摘要的系统提示词文件
+     * @param userPromptResource              生成草稿的用户消息模板文件
+     * @throws IOException                    资源文件缺失或读取失败时抛出，导致应用启动失败（fail-fast）
      */
     public AIService(ChatClient.Builder chatClientBuilder,
                      ObjectMapper objectMapper,
@@ -97,7 +108,7 @@ public class AIService {
         this.mockUserService = mockUserService;
         // 把文件内容整体读成 UTF-8 字符串，只读一次，之后复用到每次请求
         this.systemPrompt = systemPromptResource.getContentAsString(StandardCharsets.UTF_8);
-
+        // Resource是[提示词外置化]的载体，负责把resources/prompts/下的模板文件安全、可复用、启动即加载地送进AIService
         this.systemCheckPrompt = systemCheckPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemPolishPrompt = systemPolishPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemSummaryPrompt = systemSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
@@ -111,6 +122,7 @@ public class AIService {
      *
      * @param userInput 用户描述的本周工作（关键词或流水记录）
      * @return 四个字段与 WeeklyReportDTO 一一对应的草稿
+     * @throws IllegalArgumentException 模型未返回内容、返回格式异常，或前三个核心字段全空时抛出
      */
     public WeeklyReportDTO generateDraft(String userInput) {
         // 1. 渲染用户消息模板：把占位符 {userInput} 替换成用户真实输入，得到一个 UserMessage
@@ -118,16 +130,18 @@ public class AIService {
 
         // 2. 发起一次对话：system 用静态指令，user 用刚渲染好的消息，同步等待模型返回文本
         String content = chatClient.prompt()
-                .system(systemPrompt)   // 设置“系统角色”消息（给模型的全局指令/人设）。这里的systemPrompt是从ai-report-system.txt读出来的静态文本
+                .system(systemPrompt)   // 设置“系统角色”消息（全局指令/人设），取自 ai-report-system.txt 的静态文本
                 .messages(userMessage)  // 已渲染好的 UserMessage
-                // 真正发送请求并同步阻塞等待模型返回，等价于一次完整的大模型调用。返回的是一个ChatReponse（含模型回答、token用量、元信息等）
+                // 真正发送请求并同步阻塞等待模型返回，等价于一次完整的大模型调用；
+                // 返回 ChatResponse（含模型回答、token 用量、元信息等）
                 .call()
-                .content();             // 从上面那个ChatResponse里把模型生成的纯文本答案取出来，就是parseDraft(content)
-                                        // 要解析的那段字符串
+                .content();            // 从 ChatResponse 中取出模型生成的纯文本答案，即下面 parseDraft(content) 要解析的字符串
+
         // 3. 把模型返回的原始字符串解析成结构化的 DTO
         WeeklyReportDTO dto = parseDraft(content);
         // 生成草稿必须产出核心内容（总体进度/本周进展/下周目标至少其一非空），
         // 否则说明用户输入信息量不够，给一个可理解的错误提示
+        // isBlank：判断单个字符串是否为null或纯空白
         if (isBlank(dto.getOverallProgress()) && isBlank(dto.getWeeklyWorkReport()) && isBlank(dto.getNextWeekPlan())) {
             throw new IllegalArgumentException("AI 生成内容为空，请补充更多工作描述后重试");
         }
@@ -137,6 +151,9 @@ public class AIService {
     /**
      * 把模型返回的文本解析成 WeeklyReportDTO。
      * 兼容模型偶尔输出 ```json 围栏或前后夹杂说明文字的情况。
+     * 避免围栏的方式：
+     * 1. 提示词约束：在 system prompt 里写“只输出合法 JSON，不要 markdown 代码块”
+     * 2. 代码容错截取：用 indexOf('{') 和 lastIndexOf('}') 截取主体
      */
     private WeeklyReportDTO parseDraft(String raw) {
         // 模型什么都没返回（网络异常/超时等原因导致内容为空）——直接报业务错误
@@ -170,15 +187,22 @@ public class AIService {
         throw new IllegalArgumentException("AI 返回格式异常，请稍后重试");
     }
 
+    /**
+     * 把模型返回的文本解析成 WeeklySummaryDTO（个人历史周报摘要）。
+     * 结构与 parseDraft 一致，只是目标字段不同，因此同样做「围栏/废话容错 + JSON 主体截取」。
+     */
     private WeeklySummaryDTO parseSummary(String raw) {
+        // 模型什么都没返回（网络异常/超时等原因导致内容为空）——直接报业务错误
         if (raw == null || raw.isBlank()) {
             throw new IllegalArgumentException("AI未返回内容，请稍后重试");
         }
+        // 截取第一个 { 到最后一个 } 之间的子串，去掉 ```json 围栏和前后解释性文字
         String body = raw.trim();
         int start = body.indexOf('{');
         int end = body.lastIndexOf('}');
         if (start >= 0 && end > start) {
             try {
+                // 把 JSON 子串解析成 JsonNode 树，之后才能按字段名取值
                 JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
                 // 确认解析出来的是JSON对象
                 if (root != null && root.isObject()) {
@@ -198,18 +222,28 @@ public class AIService {
         throw new IllegalArgumentException("AI返回格式异常，请稍后重试");
     }
 
+    /**
+     * 把模型返回的文本解析成 TeamSummaryDTO（团队周报汇总）。
+     * 与个人摘要结构相同，容错逻辑一致，只是目标字段换成团队三项。
+     * 注意：未提交成员（missingMembers）不在这里解析，由调用方在解析后回填。
+     */
     private TeamSummaryDTO parseTeamSummary(String raw) {
+        // 模型什么都没返回（网络异常/超时等原因导致内容为空）——直接报业务错误
         if (raw == null || raw.isBlank()) {
             throw new IllegalArgumentException("AI未返回内容，请稍后重试");
         }
+        // 截取第一个 { 到最后一个 } 之间的子串，去掉 ```json 围栏和前后解释性文字
         String body = raw.trim();
         int start = body.indexOf('{');
         int end = body.lastIndexOf('}');
         if (start >= 0 && end > start) {
             try {
+                // 把 JSON 子串解析成 JsonNode 树，之后才能按字段名取值
                 JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
+                // 确认解析出来的是JSON对象
                 if (root != null && root.isObject()) {
                     TeamSummaryDTO dto = new TeamSummaryDTO();
+                    // 三个字段都是字符串，复用 extract() 取值（兼容中文别名），按摘要上限 MAX_SUMMARY_LENGTH 截断
                     dto.setTeamProgress(limit(extract(root, "teamProgress", "团队进展", "整体进展", "团队产出"), MAX_SUMMARY_LENGTH));
                     dto.setCommonIssues(limit(extract(root, "commonIssues", "共性问题", "共同问题", "团队风险"), MAX_SUMMARY_LENGTH));
                     dto.setCollaborationNeeds(limit(extract(root, "collaborationNeeds", "协作需求", "需要协作", "协作事项"), MAX_SUMMARY_LENGTH));
@@ -244,12 +278,20 @@ public class AIService {
         return "";
     }
 
-    /** 把超过 MAX_FIELD_LENGTH 的字段内容截断，避免破坏前端/数据库的字段长度限制 */
+    /**
+     * 截断的默认重载：固定用 MAX_FIELD_LENGTH（1000 字），与前端 textarea 的 maxlength 保持一致，
+     * 避免超长内容破坏前端/数据库的字段长度限制。周报正文字段走这里。
+     * 摘要类字段上限不同（300 字），需改用带 maxLength 的重载。
+     */
     private String limit(String value) {
         return limit(value, MAX_FIELD_LENGTH);
     }
 
-    /** 按指定上限截断：摘要部分（300 字）和周报正文（1000 字）上限不同，所以把上限做成参数 */
+    /**
+     * 按调用方传入的上限截断（真正干活的方法）：
+     * 上限完全由实参决定——周报正文传 MAX_FIELD_LENGTH(1000)，摘要部分传 MAX_SUMMARY_LENGTH(300)，
+     * 这里不写死任何长度。按字符数（String.length()）截断，不做代理对（emoji 等）的边界保护。
+     */
     private String limit(String value, int maxLength) {
         return value.length() > maxLength ? value.substring(0, maxLength) : value;
     }
@@ -261,6 +303,7 @@ public class AIService {
      * @param currentReport  待检查的本周周报四字段
      * @param lastWeekReport 上周周报（可为 null，null 时模型跳过"承接关系"检查）
      * @return 模型按字段列出的缺失项与改进建议
+     * @throws IllegalArgumentException 本周周报为 null，或前三个必填字段有空时抛出
      */
     public String checkCompleteness(WeeklyReportDTO currentReport, WeeklyReport lastWeekReport) {
         // 前三个字段为必填，缺失时直接拦截（与保存/提交的 validateContent 规则一致），
@@ -304,6 +347,7 @@ public class AIService {
      *
      * @param report 用户当前表单里的四字段内容（允许部分为空）
      * @return 润色后的四字段，未填字段为空串
+     * @throws IllegalArgumentException 四个字段全空，或模型返回内容为空 / 格式异常时抛出
      */
     public WeeklyReportDTO polishReport(WeeklyReportDTO report) {
         // 润色允许"只填了部分"：至少一个字段有内容即可（保存/提交时才要求前三个必填）
@@ -372,16 +416,22 @@ public class AIService {
 
     /**
      * 总结某用户最近 4 周已提交的周报。
-     * 结果按「用户 + 本周周一」缓存：同一周内重复请求直接命中缓存，不再重复调用大模型（省钱也省等待时间）。
+     * 结果按「用户 + 本周周一」缓存（value 决定 Redis 前缀、key 决定对应哪次调用，见 @Cacheable）：
+     * 重复请求命中缓存即不再调用大模型，省钱也省等待时间。
+     * 注意：缓存有效期由 Redis 全局 TTL 决定（当前 5 分钟，见 RedisConfig#cacheManager），并非缓存一整周。
+     *
+     * @throws IllegalArgumentException 该用户区间内已提交周报少于 2 篇时抛出
      */
     @Cacheable(value = "aiSummary",
             key = "#userId + '_' + T(com.practice.weeklyreportmanager.utils.DateUtils).getCurrentMonday()")
     public WeeklySummaryDTO summarizeHistory(Long userId) {
+        // 收集最近 4 周的周一，从早到晚：[0]=4 周前、[1]=3 周前、[2]=上周、[3]=本周
         List<LocalDate> mondayList = new ArrayList<>();
         for (int i = 3; i >= 0; i--) {
             mondayList.add(DateUtils.getMondayOfWeek(LocalDate.now().minusWeeks(i)));
         }
-        // 只总结已提交的周报，草稿不参与（数据查询交给 WeeklyReportService）
+        // 只总结已提交的周报，草稿不参与（数据查询交给 WeeklyReportService）；
+        // 查询区间取 [0]（最早）到 [3]（本周）
         List<WeeklyReport> reportList = weeklyReportService.getSubmittedReportsBetween(
                 userId, mondayList.get(0), mondayList.get(3));
         if (reportList.size() < 2) {
@@ -419,31 +469,40 @@ public class AIService {
     /**
      * 汇总某一周所有已提交成员的周报，生成团队周报（团队进展 / 共性问题 / 协作需求）。
      * 未提交成员不进模型，由系统算出后回填到 missingMembers。
-     * 结果按「归一化后的周一」缓存：跨周自动换 key，同周内重复请求不再重复调用大模型。
+     * 结果按「归一化后的周一」缓存（value 决定 Redis 前缀、key 决定对应哪次调用，见 @Cacheable）：
+     * 跨周自动换 key，同周内重复请求命中缓存。
+     * 注意：缓存有效期由 Redis 全局 TTL 决定（当前 5 分钟，见 RedisConfig#cacheManager），并非缓存一整周。
+     *
+     * @throws IllegalArgumentException 该周无已提交周报，或少于 2 篇时抛出
      */
     @Cacheable(value = "teamSummary",
             key = "T(com.practice.weeklyreportmanager.utils.DateUtils)"
                     + ".getMondayOfWeek(#weekStartDate != null ? #weekStartDate : T(java.time.LocalDate).now())")
     public TeamSummaryDTO summarizeTeam(LocalDate weekStartDate) {
+        // 传日期则汇总该周周报，不传则默认汇总当前周周报
         if (weekStartDate == null) {
             weekStartDate = DateUtils.getCurrentMonday();
         } else {
             weekStartDate = DateUtils.getMondayOfWeek(weekStartDate);
         }
+        // 获取已提交的周报
         List<WeeklyReport> submitted = weeklyReportService.getSubmittedReportOfWeek(weekStartDate);
         if (submitted.isEmpty()) {
             throw new IllegalArgumentException("本周暂无已提交周报");
         } else if (submitted.size() < 2) {
             throw new IllegalArgumentException("周报数量不足，无法生成周报");
         }
+        // 获取所有成员
         List<MockUserService.MockUser> allmembers = mockUserService.getAllMembers();
 
+        // 按userId构建快速查找索引
         Map<Long, WeeklyReport> reportIndex = new HashMap<>();
         for (WeeklyReport report : submitted) {
             Long key = report.getUserId();
             reportIndex.put(key, report);
         }
 
+        // 遍历所有成员，按userId查找相应周报，如果周报为null，则该成员未提交周报，加入missingMembers列表
         List<String> missingMembers = new ArrayList<>();
         for (MockUserService.MockUser user : allmembers) {
             Long key = user.getId();
