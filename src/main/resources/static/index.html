@@ -214,6 +214,11 @@
             body { padding: 12px; }
             .container { padding: 36px 16px 150px; border-radius: 12px; }
         }
+        /* AI 问答：问答记录 + 回答气泡（回答保留换行） */
+        .chat-item { margin-bottom: 12px; }
+        .chat-q { font-weight: 600; word-break: break-word; }
+        .chat-a { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius);
+                  padding: 10px 12px; margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
     </style>
 </head>
 <body>
@@ -311,12 +316,11 @@
                 </div>
             </div>
 
-            <!-- AI 操作栏：放在输入框下方，填完内容顺手即可润色 / 检查 -->
+            <!-- AI 操作栏：放在输入框下方，填完内容即可生成草稿 / 做一次周报体检 -->
             <div class="ai-toolbar">
-                <span class="text-muted small me-auto">AI 辅助：填完内容后可润色或检查完整性</span>
+                <span class="text-muted small me-auto">AI 辅助：填完内容后可生成草稿，或做一次周报体检（先出问题清单，再决定要不要按建议润色）</span>
                 <button class="btn btn-ai" onclick="openAIDraft()" id="btnAIDraft">AI 辅助撰写</button>
-                <button class="btn btn-ai" onclick="polishCurrentReport()" id="btnPolish">AI 润色</button>
-                <button class="btn btn-ai" onclick="checkCurrentReport()" id="btnCheck">完整性检查</button>
+                <button class="btn btn-ai" onclick="runHealthCheck()" id="btnHealthCheck">周报体检</button>
             </div>
         </div>
     </div>
@@ -377,7 +381,10 @@
     <div id="tab-myhistory" class="tab-pane">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
             <span class="text-muted small">「AI 汇总我的周报」总结最近 4 周已提交的周报（草稿不参与）</span>
-            <button class="btn btn-ai" id="btnMySummary" onclick="loadMySummary()" title="汇总最近 4 周已提交的周报">AI 汇总我的周报</button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-ai" id="btnChatReports" onclick="openChatModal()" title="针对自己的周报内容提问">AI 问周报</button>
+                <button class="btn btn-ai" id="btnMySummary" onclick="loadMySummary()" title="汇总最近 4 周已提交的周报">AI 汇总我的周报</button>
+            </div>
         </div>
 
         <div class="filter-bar mb-3">
@@ -462,18 +469,20 @@
     </div>
 </div>
 
-<!-- ========== AI 完整性检查结果弹窗 ========== -->
+<!-- ========== 周报体检弹窗：先出问题清单，再让用户决定要不要按建议润色 ========== -->
 <div class="modal fade" id="aiCheckModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">AI 完整性检查结果</h5>
+                <h5 class="modal-title">周报体检</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="report-field" id="aiCheckResult" style="white-space:pre-wrap; margin:0;">检查中...</div>
             </div>
             <div class="modal-footer">
+                <span class="text-muted small me-auto">润色结果会先给你逐字段对比，确认后才写回表单</span>
+                <button type="button" class="btn btn-ai" id="btnPolishByAdvice" onclick="polishByAdvice()" disabled>按建议润色</button>
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
             </div>
         </div>
@@ -495,6 +504,42 @@
                 <button type="button" class="btn btn-glass" id="btnCopySummary" onclick="copySummary()">复制</button>
                 <button type="button" class="btn btn-glass" id="btnDownloadSummary" onclick="downloadSummary()">下载</button>
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== AI 周报问答弹窗（针对个人历史周报提问） ========== -->
+<div class="modal fade" id="aiChatModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">AI 问周报</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="aiChatBody">
+                <!-- 时间范围：留空则后端按最近 4 周处理，与「AI 汇总我的周报」口径一致 -->
+                <div class="row g-2 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-1" for="chatStartDate">开始日期</label>
+                        <input type="text" class="form-control" id="chatStartDate" placeholder="YYYY-MM-DD" autocomplete="off">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-1" for="chatEndDate">结束日期</label>
+                        <input type="text" class="form-control" id="chatEndDate" placeholder="YYYY-MM-DD" autocomplete="off">
+                    </div>
+                    <div class="col-md-4">
+                        <span class="text-muted small">留空则问最近 4 周已提交的周报</span>
+                    </div>
+                </div>
+                <div id="aiChatThread"></div>
+                <input type="text" class="form-control" id="aiChatInput" placeholder="例如：我这周主要做了什么？"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatQuestion();}">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-glass" onclick="clearChatThread()">清空</button>
+                <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-submit" id="btnSendChat" onclick="sendChatQuestion()">发送</button>
             </div>
         </div>
     </div>
@@ -571,6 +616,35 @@
     // ==================== 全局配置 ====================
     // 同源部署时走相对路径（前后端由 Spring Boot 一起提供）；file:// 双击打开时回退到本地后端地址（配 CorsConfig 跨域）
     const BASE_URL = location.protocol === 'file:' ? 'http://localhost:8080' : '';
+
+    // ==================== 接口统一入口 ====================
+    // 各调用点保持 fetch(...).then(res => res.json()) 的写法不变，只把 fetch 换成 apiFetch：
+    // 1) 连不上后端 → 给出可读提示，而不是原始的 "Failed to fetch"；
+    // 2) 返回体不是 JSON（容器/网关的异常页）→ 明确说是后端异常，不再一律误报成"网络错误"；
+    // 3) HTTP 非 2xx → 优先用后端的 message，没有就带上状态码。
+    // 注意：AbortError 必须原样抛出 —— AI 那几处要靠它区分"超时"和"用户取消"。
+    async function apiFetch(url, options) {
+        let res;
+        try {
+            res = await fetch(url, options);
+        } catch (e) {
+            if (e && e.name === 'AbortError') throw e;
+            throw new Error('无法连接后端服务，请确认服务已启动');
+        }
+        return {
+            json: async () => {
+                let data = null;
+                try {
+                    data = await res.json();
+                } catch (e) {
+                    throw new Error('后端返回内容异常（HTTP ' + res.status + '），请查看服务端日志');
+                }
+                if (!res.ok) throw new Error((data && data.message) || ('请求失败（HTTP ' + res.status + '）'));
+                return data;
+            }
+        };
+    }
+
     let currentPage = 1;
     const PAGE_SIZE = 10;
     let totalWeeks = 0;
@@ -583,7 +657,7 @@
     let lastLoadedContent = { overallProgress: '', weeklyWorkReport: '', nextWeekPlan: '', other: '' };  // 最近一次加载到表单的内容（用于未保存检测）
     let aiGenerating = false;   // 防止 AI 生成请求被重复提交
     let aiPolish = false;       // 防止 AI 润色请求被重复提交
-    let aiChecking = false;     // 防止 AI 完整性检查被重复提交
+    let aiChecking = false;     // 防止「周报体检」请求被重复提交
 
     // ==================== AI 请求通用控制（超时 / 取消 / 计时） ====================
     const AI_TIMEOUT_MS = 90000;   // 单次 AI 请求最长等待时间，超时自动中断
@@ -646,7 +720,7 @@
             if (aiAbortReason === 'timeout') showToast('AI 响应超时，请稍后重试', 'error');
             else showToast('已取消 AI 请求');
         } else {
-            showToast('网络错误，请稍后重试', 'error');
+            showToast(err.message || '网络错误，请稍后重试', 'error');
         }
     }
 
@@ -905,7 +979,7 @@
         // 重新加载时清掉上一轮的最后保存时间（可能是别的用户/上一周的）
         const savedTimeEl = document.getElementById('draftSavedTime');
         if (savedTimeEl) savedTimeEl.style.display = 'none';
-        fetch(`${BASE_URL}/api/reports/current?userId=${userId}`)   // ← 关键！加上 userId
+        apiFetch(`${BASE_URL}/api/reports/current?userId=${userId}`)   // ← 关键！加上 userId
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
@@ -925,11 +999,12 @@
                 }
                 // 记录本次加载的内容，用于切换用户时判断是否有未保存修改
                 lastLoadedContent = currentContentSnapshot();
+                maybeOfferDraftRestore();   // 服务器内容已就位，这时才知道本地草稿该不该恢复
                 clearAIHighlights();   // 新加载的内容与上一轮 AI 修改无关，清掉高亮与撤销入口
                 hideAIActionBar();
                 updateCounters();
             })
-            .catch(() => showToast('加载失败，请稍后重试', 'error'));
+            .catch(err => showToast('加载失败：' + (err.message || '请稍后重试'), 'error'));
     }
 
     // 更新主表单的提交状态提示（不锁定表单：本周内可反复修改并再次提交）
@@ -978,7 +1053,7 @@
             nextWeekPlan: document.getElementById('content3').value,
             other: document.getElementById('content4').value
         };
-        fetch(`${BASE_URL}/api/reports/save?userId=${userId}`, {
+        apiFetch(`${BASE_URL}/api/reports/save?userId=${userId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -995,7 +1070,7 @@
                     showToast('保存失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => showToast(err.message || '网络错误，请稍后重试', 'error'))
             .finally(() => {
                 savingForm = false;
                 btn.textContent = '保存草稿';
@@ -1035,7 +1110,7 @@
             nextWeekPlan: document.getElementById('content3').value,
             other: document.getElementById('content4').value
         };
-        fetch(`${BASE_URL}/api/reports/submit?userId=${userId}`, {
+        apiFetch(`${BASE_URL}/api/reports/submit?userId=${userId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1050,7 +1125,7 @@
                     showToast('提交失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => showToast(err.message || '网络错误，请稍后重试', 'error'))
             .finally(() => {
                 savingForm = false;
                 setFormBusy(false);   // 恢复两个按钮（内部会重新套用周五可用性）
@@ -1095,7 +1170,7 @@
         setAIBtnLoading(btn, true, 'AI 生成中...', '生成草稿');
         showDraftLoading(true);
         const ctrl = newAIRequest();
-        fetch(`${BASE_URL}/api/reports/ai/draft`, {
+        apiFetch(`${BASE_URL}/api/reports/ai/draft`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ input: input }),
@@ -1128,9 +1203,13 @@
             });
     }
 
-    // ==================== AI 润色 ====================
-    // 把表单已填字段发给 AI 润色；返回结果只覆盖"已填过"的字段（空字段保持原样）
-    function polishCurrentReport() {
+    // ==================== AI 润色（周报体检的第二段） ====================
+    // 由「周报体检」弹窗的「按建议润色」触发：把体检结论一起交给模型，让它针对结论里指出的问题改。
+    // 后端会守住「不许新增原文没有的事实/数据」这条底线（见 ai-polish-system.txt）。
+    let lastCheckResult = '';   // 最近一次体检结论，「按建议润色」时带给后端；为空即普通润色
+
+    // 结果不直接覆盖表单：先存原文与润色结果，弹对比弹窗由用户逐字段勾选
+    function polishByAdvice() {
         if (aiPolish) return;   // 防止重复点击
         const payload = currentContentSnapshot();
         const hasAny = [payload.overallProgress, payload.weeklyWorkReport, payload.nextWeekPlan, payload.other].some(v => v && v.trim());
@@ -1138,44 +1217,60 @@
             showToast('请先填写要润色的内容', 'error');
             return;
         }
-        const btn = document.getElementById('btnPolish');
+        const btn = document.getElementById('btnPolishByAdvice');
         aiPolish = true;
-        // 润色没有弹窗，这里让按钮在请求期间变成「取消」，点击即可中断
-        btn.disabled = false;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>取消';
-        btn.onclick = cancelAIRequest;
+        pendingPolish = null;   // 清掉上一次结果，避免润色失败后「应用选中」写回旧内容
+        setAIBtnLoading(btn, true, '润色中...', '按建议润色');
+        // 体检弹窗让位给对比弹窗：润色结果仍然走「逐字段勾选 → 应用」这套流程
+        const diffBody = document.getElementById('aiPolishDiffBody');
+        diffBody.innerHTML = aiLoadingBlock('AI 正在按体检建议润色...');
+        const checkModalEl = document.getElementById('aiCheckModal');
+        const showDiffModal = () => bootstrap.Modal.getOrCreateInstance(document.getElementById('aiPolishDiffModal')).show();
+        if (checkModalEl.classList.contains('show')) {
+            // 必须等体检弹窗「完全隐藏」再开对比弹窗，否则两个 backdrop 会叠在一起、body 的滚动锁也可能残留
+            checkModalEl.addEventListener('hidden.bs.modal', showDiffModal, { once: true });
+            bootstrap.Modal.getOrCreateInstance(checkModalEl).hide();
+        } else {
+            showDiffModal();
+        }
         const ctrl = newAIRequest();
-        fetch(`${BASE_URL}/api/reports/ai/polish`, {
+        apiFetch(`${BASE_URL}/api/reports/ai/polish`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
+            // 四字段包在 report 里，体检结论放 checkResult；结论为空就是普通润色
+            body: JSON.stringify({ report: payload, checkResult: lastCheckResult || null }),
             signal: ctrl.signal
         })
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
-                    // 不直接覆盖表单：先存下原文与润色结果，弹出对比弹窗由用户逐字段勾选
                     const before = currentContentSnapshot();
                     pendingPolish = { before: before, after: data.data };
                     renderPolishDiff(before, data.data);
-                    bootstrap.Modal.getOrCreateInstance(document.getElementById('aiPolishDiffModal')).show();
                 } else {
-                    showToast('润色失败：' + (data.message || 'AI 返回格式异常，请重试'), 'error');
+                    diffBody.innerHTML = '<div class="text-center text-danger py-4">润色失败：'
+                        + escapeHtml(data.message || 'AI 返回格式异常，请重试') + '</div>';
                 }
             })
-            .catch(err => handleAIError(err))
+            .catch(err => {
+                if (err && err.name === 'AbortError') {
+                    diffBody.innerHTML = '<div class="text-center text-muted py-4">'
+                        + (aiAbortReason === 'timeout' ? 'AI 响应超时，请关闭后重试' : '已取消润色') + '</div>';
+                } else {
+                    diffBody.innerHTML = '<div class="text-center text-danger py-4">' + escapeHtml(err.message || '网络错误，请稍后重试') + '</div>';
+                }
+            })
             .finally(() => {
                 aiPolish = false;
                 endAIRequest();
-                btn.disabled = false;
-                btn.onclick = polishCurrentReport;
-                btn.innerHTML = 'AI 润色';
+                setAIBtnLoading(btn, false, '', '按建议润色');
             });
     }
 
-    // ==================== AI 完整性检查 ====================
-    // 把当前四个字段发给 AI 检查，结果以多行文本展示在弹窗中
-    function checkCurrentReport() {
+    // ==================== AI 周报体检（检查 → 问题清单 → 按建议润色） ====================
+    // 把当前四个字段发给 AI 体检，结论以多行文本展示在弹窗中，并留给「按建议润色」复用。
+    // 后端按周报内容做了缓存：内容没改就再点一次「周报体检」不会再调模型。
+    function runHealthCheck() {
         if (aiChecking) return;   // 防止重复点击
         const payload = currentContentSnapshot();
         // 前三个字段必填（与后端校验一致），空时先在前端拦截
@@ -1185,15 +1280,18 @@
             showToast('请先填写总体进度、本周进展、下周目标', 'error');
             return;
         }
-        const btn = document.getElementById('btnCheck');
+        const btn = document.getElementById('btnHealthCheck');
+        const adviceBtn = document.getElementById('btnPolishByAdvice');
         aiChecking = true;
-        setAIBtnLoading(btn, true, '检查中...', '完整性检查');
-        // 先弹窗展示加载态，模型返回后再替换为检查结果
+        lastCheckResult = '';        // 新一次体检：先丢掉上一次的结论，免得润色用到过期建议
+        adviceBtn.disabled = true;   // 请求期间先禁用，避免拿着空结论去润色
+        setAIBtnLoading(btn, true, '体检中...', '周报体检');
+        // 先弹窗展示加载态，模型返回后再替换为体检结论
         const resultEl = document.getElementById('aiCheckResult');
-        resultEl.innerHTML = aiLoadingBlock('AI 正在检查完整性...');
+        resultEl.innerHTML = aiLoadingBlock('AI 正在检查周报...');
         bootstrap.Modal.getOrCreateInstance(document.getElementById('aiCheckModal')).show();
         const ctrl = newAIRequest();
-        fetch(`${BASE_URL}/api/reports/ai/check?userId=${getCurrentUserId()}`, {
+        apiFetch(`${BASE_URL}/api/reports/ai/check?userId=${getCurrentUserId()}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -1202,7 +1300,8 @@
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200) {
-                    resultEl.textContent = data.data || '内容完整，无缺失项';
+                    lastCheckResult = data.data || '内容完整，无缺失项';
+                    resultEl.textContent = lastCheckResult;
                 } else {
                     resultEl.innerHTML = '<span class="text-danger">检查失败：'
                         + escapeHtml(data.message || 'AI 返回格式异常，请重试') + '</span>';
@@ -1212,13 +1311,15 @@
                 if (err && err.name === 'AbortError') {
                     resultEl.textContent = (aiAbortReason === 'timeout') ? 'AI 响应超时，请关闭后重试' : '已取消检查';
                 } else {
-                    resultEl.textContent = '网络错误，请稍后重试';
+                    resultEl.textContent = err.message || '网络错误，请稍后重试';
                 }
             })
             .finally(() => {
                 aiChecking = false;
                 endAIRequest();
-                setAIBtnLoading(btn, false, '', '完整性检查');
+                setAIBtnLoading(btn, false, '', '周报体检');
+                // 体检失败也让润色可用（此时没有结论，等于普通润色），避免把润色功能堵死
+                adviceBtn.disabled = false;
             });
     }
 
@@ -1303,7 +1404,7 @@
         setSummaryButtonsLoading('btnMySummary', true);
         openSummaryModal('我的近四周摘要');
         const ctrl = newAIRequest();
-        fetch(`${BASE_URL}/api/reports/ai/summary?userId=${getCurrentUserId()}`, { signal: ctrl.signal })
+        apiFetch(`${BASE_URL}/api/reports/ai/summary?userId=${getCurrentUserId()}`, { signal: ctrl.signal })
             .then(res => res.json())
             .then(data => {
                 const body = document.getElementById('aiSummaryBody');
@@ -1326,13 +1427,114 @@
                     body.innerHTML = '<div class="text-center text-muted py-4">'
                         + (aiAbortReason === 'timeout' ? 'AI 响应超时，请关闭后重试' : '已取消生成') + '</div>';
                 } else {
-                    body.innerHTML = '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+                    body.innerHTML = '<div class="text-center text-danger py-4">' + escapeHtml(err.message || '网络错误，请稍后重试') + '</div>';
                 }
             })
             .finally(() => {
                 aiSummaryLoading = false;
                 endAIRequest();
                 setSummaryButtonsLoading('btnMySummary', false);
+            });
+    }
+
+    // ==================== AI 周报问答（个人历史周报） ====================
+    // 每问一次就是独立的一轮：后端 ChatRequest 不带上下文，问题之间互不影响，不能追问「那下周呢？」
+    let aiChatBusy = false;   // 防止连点「发送」
+
+    // 打开前重置问答区，避免看到上一个用户/上一次的记录
+    function openChatModal() {
+        clearChatThread();
+        document.getElementById('aiChatInput').value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiChatModal')).show();
+        setTimeout(() => document.getElementById('aiChatInput').focus(), 200);
+    }
+
+    function clearChatThread() {
+        document.getElementById('aiChatThread').innerHTML =
+            '<div class="text-muted small">针对你自己的周报提问，例如「这周主要做了什么」「有哪些遗留问题」</div>';
+    }
+
+    // 追加一条问答记录；role 为 'a' 时返回答案元素，供后续写入 loading / 结果
+    function appendChatItem(role, text) {
+        const thread = document.getElementById('aiChatThread');
+        if (thread.querySelector('.text-muted.small')) thread.innerHTML = '';   // 清掉占位提示
+        const item = document.createElement('div');
+        item.className = 'chat-item';
+        if (role === 'q') {
+            item.innerHTML = `<div class="chat-q">问：${escapeHtml(text)}</div>`;
+            thread.appendChild(item);
+            scrollChatToBottom();
+            return null;
+        }
+        item.innerHTML = '<div class="chat-a"></div>';
+        const answer = item.querySelector('.chat-a');
+        if (text) answer.textContent = text;
+        thread.appendChild(item);
+        scrollChatToBottom();
+        return answer;
+    }
+
+    function scrollChatToBottom() {
+        const body = document.getElementById('aiChatBody');
+        body.scrollTop = body.scrollHeight;
+    }
+
+    // 发送问题：userId 必须放在 body 里（后端 @NotNull 校验），日期留空则由后端按最近 4 周处理
+    function sendChatQuestion() {
+        if (aiChatBusy) return;
+        const input = document.getElementById('aiChatInput');
+        const question = input.value.trim();
+        if (!question) { showToast('请先输入问题', 'error'); return; }
+
+        const startDate = document.getElementById('chatStartDate').value;
+        const endDate = document.getElementById('chatEndDate').value;
+        // 与后端一致的前置校验，避免白发一次请求
+        if (startDate && endDate && startDate > endDate) {
+            showToast('开始日期不能晚于结束日期', 'error');
+            return;
+        }
+
+        aiChatBusy = true;
+        const btn = document.getElementById('btnSendChat');
+        setAIBtnLoading(btn, true, '思考中...', '发送');
+        input.value = '';
+        appendChatItem('q', question);
+        const answerEl = appendChatItem('a', '');
+        answerEl.innerHTML = aiLoadingBlock('AI 正在查阅周报...');
+        const ctrl = newAIRequest();
+        apiFetch(`${BASE_URL}/api/reports/ai/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: getCurrentUserId(),
+                question: question,
+                startDate: startDate || null,
+                endDate: endDate || null
+            }),
+            signal: ctrl.signal
+        })
+            .then(res => res.json())
+            .then(data => {
+                // 回答是纯文本（可能多行），用 textContent 写入，不能当 JSON 解析
+                if (data.code === 200) {
+                    answerEl.textContent = data.data || '（无内容）';
+                } else {
+                    answerEl.innerHTML = '<span class="text-danger">'
+                        + escapeHtml(data.message || '回答失败，请重试') + '</span>';
+                }
+            })
+            .catch(err => {
+                if (err && err.name === 'AbortError') {
+                    answerEl.textContent = aiAbortReason === 'timeout' ? 'AI 响应超时，请重试' : '已取消提问';
+                } else {
+                    answerEl.textContent = err.message || '网络错误，请稍后重试';
+                }
+            })
+            .finally(() => {
+                aiChatBusy = false;
+                endAIRequest();
+                setAIBtnLoading(btn, false, '', '发送');
+                scrollChatToBottom();
             });
     }
 
@@ -1393,7 +1595,7 @@
         openSummaryModal('AI 团队周报（' + teamWeekRangeLabel() + '）');
         const url = `${BASE_URL}/api/reports/ai/teamSummary?weekStartDate=${weekStart}`;
         const ctrl = newAIRequest();
-        fetch(url, { signal: ctrl.signal })
+        apiFetch(url, { signal: ctrl.signal })
             .then(res => res.json())
             .then(data => {
                 const body = document.getElementById('aiSummaryBody');
@@ -1418,7 +1620,7 @@
                     body.innerHTML = '<div class="text-center text-muted py-4">'
                         + (aiAbortReason === 'timeout' ? 'AI 响应超时，请关闭后重试' : '已取消生成') + '</div>';
                 } else {
-                    body.innerHTML = '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+                    body.innerHTML = '<div class="text-center text-danger py-4">' + escapeHtml(err.message || '网络错误，请稍后重试') + '</div>';
                 }
             })
             .finally(() => {
@@ -1439,7 +1641,7 @@
         if (end) url += `&endDate=${end}`;
 
         // 直接请求，不再强制要求日期
-        fetch(url)
+        apiFetch(url)
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
@@ -1452,8 +1654,8 @@
                     document.getElementById('historyContainer').innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
                 }
             })
-            .catch(() => {
-                document.getElementById('historyContainer').innerHTML = '<div class="text-center text-danger py-4">加载失败</div>';
+            .catch(err => {
+                document.getElementById('historyContainer').innerHTML = '<div class="text-center text-danger py-4">加载失败：' + escapeHtml(err.message || '请稍后重试') + '</div>';
             });
     }
 
@@ -1539,7 +1741,7 @@
         actions.style.display = 'none';
         actions.innerHTML = '';
 
-        fetch(`${BASE_URL}/api/reports/${reportId}`)
+        apiFetch(`${BASE_URL}/api/reports/${reportId}`)
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
@@ -1614,8 +1816,8 @@
                     body.innerHTML = '<div class="text-center text-danger py-4">加载失败：' + escapeHtml(data.message || '数据异常') + '</div>';
                 }
             })
-            .catch(() => {
-                body.innerHTML = '<div class="text-center text-danger py-4">网络错误，请稍后重试</div>';
+            .catch(err => {
+                body.innerHTML = '<div class="text-center text-danger py-4">' + escapeHtml(err.message || '网络错误，请稍后重试') + '</div>';
             });
     }
 
@@ -1650,7 +1852,7 @@
             other: document.getElementById('editOther').value
         };
 
-        fetch(`${BASE_URL}/api/reports/${reportId}?userId=${getCurrentUserId()}`, {
+        apiFetch(`${BASE_URL}/api/reports/${reportId}?userId=${getCurrentUserId()}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1671,7 +1873,7 @@
                     showToast('保存失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => showToast(err.message || '网络错误，请稍后重试', 'error'))
             .finally(() => { savingDetail = false; setDetailBusy(false); });
     }
 
@@ -1691,7 +1893,7 @@
             other: document.getElementById('editOther').value
         };
 
-        fetch(`${BASE_URL}/api/reports/${reportId}/submit?userId=${getCurrentUserId()}`, {
+        apiFetch(`${BASE_URL}/api/reports/${reportId}/submit?userId=${getCurrentUserId()}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1710,7 +1912,7 @@
                     showToast('提交失败：' + data.message, 'error');
                 }
             })
-            .catch(() => showToast('网络错误，请稍后重试', 'error'))
+            .catch(err => showToast(err.message || '网络错误，请稍后重试', 'error'))
             .finally(() => { savingDetail = false; setDetailBusy(false); });
     }
 
@@ -1781,7 +1983,7 @@
         if (start) url += `&startDate=${start}`;
         if (end) url += `&endDate=${end}`;
 
-        fetch(url)
+        apiFetch(url)
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data) {
@@ -1794,8 +1996,8 @@
                     document.getElementById('myHistoryContainer').innerHTML = '<div class="text-center text-muted py-4">暂无数据</div>';
                 }
             })
-            .catch(() => {
-                document.getElementById('myHistoryContainer').innerHTML = '<div class="text-center text-danger py-4">加载失败</div>';
+            .catch(err => {
+                document.getElementById('myHistoryContainer').innerHTML = '<div class="text-center text-danger py-4">加载失败：' + escapeHtml(err.message || '请稍后重试') + '</div>';
             });
     }
 
@@ -1922,7 +2124,7 @@
         const friday = new Date(monday);
         friday.setDate(monday.getDate() + 4);
         const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        fetch(`${BASE_URL}/api/reports/team?startDate=${fmtDate(monday)}&endDate=${fmtDate(friday)}&pageNo=1&pageSize=50`)
+        apiFetch(`${BASE_URL}/api/reports/team?startDate=${fmtDate(monday)}&endDate=${fmtDate(friday)}&pageNo=1&pageSize=50`)
             .then(res => res.json())
             .then(data => {
                 if (data.code === 200 && data.data && data.data.records && data.data.records.length > 0) {
@@ -1935,7 +2137,7 @@
                     document.getElementById('weekProgressMini').innerText = `${submitted}/${total}`;
                 }
             })
-            .catch(() => showToast('加载失败，请稍后重试', 'error'));
+            .catch(err => showToast('加载失败：' + (err.message || '请稍后重试'), 'error'));
     }
 
     // 「本周提交进度」悬浮卡：点击收起 / 展开，状态记在 localStorage，收起后不再遮挡表格
@@ -1968,17 +2170,95 @@
             const ta = document.getElementById('content' + i);
             if (ta) {
                 // 用户一开始手动编辑就清掉 AI 高亮（撤销入口保留）
-                ta.addEventListener('input', () => { updateCounters(); clearAIHighlights(); });
+                ta.addEventListener('input', () => { updateCounters(); clearAIHighlights(); scheduleDraftSave(); });
             }
         }
         updateCounters();
     }
 
+    // ==================== 未保存保护：本机自动暂存 + 关闭前提醒 ====================
+    // 后端只有"点击保存"才落库，所以刷新/关标签页会直接丢掉正在写的内容。
+    // 做法：输入停顿 1 秒后把四个字段暂存到 localStorage；下次进页面时，
+    // 只有「同一用户 + 同一周 + 与服务器内容不同」才询问恢复，避免把上周或别人的内容填进表单。
+    const DRAFT_KEY = 'weeklyReportLocalDraft';   // 结构：{ userId, week, savedAt, content }
+    let draftTimer = null;             // 防抖计时器：避免每敲一个字都写 localStorage
+    let draftRestoreChecked = false;   // 每次进页面只询问一次，切换用户时不再反复弹
+
+    // 与"最近一次从服务器加载/保存的内容"比较，判断是否有未保存的编辑
+    function isFormDirty() {
+        return JSON.stringify(currentContentSnapshot()) !== JSON.stringify(lastLoadedContent);
+    }
+
+    // 输入停顿 1 秒再写：频繁点击保存按钮之外的输入不该每次都落盘
+    function scheduleDraftSave() {
+        clearTimeout(draftTimer);
+        draftTimer = setTimeout(saveLocalDraft, 1000);
+    }
+
+    function saveLocalDraft() {
+        const content = currentContentSnapshot();
+        // 四个字段全空就不暂存，免得留一份空草稿天天弹恢复提示
+        if (![content.overallProgress, content.weeklyWorkReport, content.nextWeekPlan, content.other].some(v => v && v.trim())) {
+            return;
+        }
+        try {
+            localStorage.setItem(DRAFT_KEY, JSON.stringify({
+                userId: getCurrentUserId(),
+                week: formatDateYmd(mondayOf(new Date())),
+                savedAt: Date.now(),
+                content: content
+            }));
+            const el = document.getElementById('draftSavedTime');
+            if (el) {
+                const t = new Date();
+                const hm = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+                el.textContent = '已在本机暂存：' + hm;
+                el.style.display = '';
+            }
+        } catch (e) { /* 隐私模式或存储已满：暂存失败不影响正常编辑 */ }
+    }
+
+    // 服务器内容就位后调用（见 loadCurrentWeek）：只有在值得恢复时才询问
+    async function maybeOfferDraftRestore() {
+        if (draftRestoreChecked) return;
+        draftRestoreChecked = true;
+        let draft = null;
+        try {
+            draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+        } catch (e) { draft = null; }
+        if (!draft || !draft.content) return;
+        // 只认「同一用户 + 同一周」的草稿
+        if (draft.userId !== getCurrentUserId() || draft.week !== formatDateYmd(mondayOf(new Date()))) return;
+        // 与服务器内容一致说明已经保存过，不必打扰用户
+        if (JSON.stringify(draft.content) === JSON.stringify(lastLoadedContent)) return;
+
+        const ok = await showConfirm(
+            '检测到本机暂存的未保存内容（编辑于 ' + new Date(draft.savedAt).toLocaleString() + '），是否恢复到表单？',
+            { title: '恢复本机暂存', okText: '恢复', cancelText: '丢弃' });
+        if (!ok) {
+            try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* 忽略 */ }
+            return;
+        }
+        document.getElementById('content1').value = draft.content.overallProgress || '';
+        document.getElementById('content2').value = draft.content.weeklyWorkReport || '';
+        document.getElementById('content3').value = draft.content.nextWeekPlan || '';
+        document.getElementById('content4').value = draft.content.other || '';
+        updateCounters();
+        clearAIHighlights();   // 恢复出来的是用户手工内容，不该带 AI 高亮
+        showToast('已恢复本机暂存的内容，记得点保存写入服务器');
+    }
+
+    // 关闭/刷新前拦截：仅在确有未保存修改时触发（浏览器自带确认框，文案无法定制）
+    window.addEventListener('beforeunload', e => {
+        if (!isFormDirty()) return;
+        e.preventDefault();
+        e.returnValue = '';
+    });
     // ==================== 初始化 ====================
     window.onload = function() {
         // 日期选择器：flatpickr，日历弹窗 + yyyy-MM-dd 显示
         if (window.flatpickr) {
-            document.querySelectorAll('#startDate, #endDate, #startDateMy, #endDateMy').forEach(el => {
+            document.querySelectorAll('#startDate, #endDate, #startDateMy, #endDateMy, #chatStartDate, #chatEndDate').forEach(el => {
                 flatpickr(el, { dateFormat: 'Y-m-d', allowInput: true, locale: 'zh' });
             });
         }

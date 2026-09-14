@@ -460,4 +460,5 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
         wrapper.orderByAsc("user_id");
         return weeklyReportMapper.selectList(wrapper);
     }
+
 }

@@ -3,10 +3,7 @@ package com.practice.weeklyreportmanager.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.practice.weeklyreportmanager.common.Result;
-import com.practice.weeklyreportmanager.dto.AIDraftRequest;
-import com.practice.weeklyreportmanager.dto.TeamSummaryDTO;
-import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
-import com.practice.weeklyreportmanager.dto.WeeklySummaryDTO;
+import com.practice.weeklyreportmanager.dto.*;
 import com.practice.weeklyreportmanager.entity.WeeklyReport;
 import com.practice.weeklyreportmanager.service.AIService;
 import com.practice.weeklyreportmanager.service.WeeklyReportService;
@@ -126,9 +123,14 @@ public class WeeklyReportController {
         return Result.success(aiService.checkCompleteness(dto, lastWeekReport));
     }
 
+    /**
+     * AI 润色，也是「周报体检」的第二段：请求里带上 checkResult（体检结论）时，
+     * 润色会针对结论里指出的问题调整表达，但依然严禁新增原文没有的事实与数据。
+     * 示例：POST /api/reports/ai/polish  body: {"report":{...四字段...},"checkResult":"问题 1：..."}
+     */
     @PostMapping("/ai/polish")
-    public Result<WeeklyReportDTO> polishReport(@RequestBody WeeklyReportDTO dto) {
-        return Result.success(aiService.polishReport(dto));
+    public Result<WeeklyReportDTO> polishReport(@RequestBody AIPolishRequest request) {
+        return Result.success(aiService.polishReport(request.getReport(), request.getCheckResult()));
     }
 
     @GetMapping("/ai/summary")
@@ -147,5 +149,15 @@ public class WeeklyReportController {
                                                 @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate weekStartDate) {
         TeamSummaryDTO summaryDTO = aiService.summarizeTeam(weekStartDate);
         return Result.success(summaryDTO);
+    }
+
+    /**
+     * AI 周报问答：针对某个用户在指定时间范围内的周报内容提问，返回基于周报数据的回答。
+     * 示例：POST /api/reports/ai/chat  body: {"userId":1,"question":"我这周主要做了什么","startDate":"2026-08-17"}
+     */
+    @PostMapping("/ai/chat")
+    public Result<String> chatWithReports(@Valid @RequestBody ChatRequest request) {
+        String answer = aiService.chatWithReports(request);
+        return Result.success(answer);
     }
 }

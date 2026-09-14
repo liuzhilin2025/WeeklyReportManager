@@ -3,6 +3,7 @@ package com.practice.weeklyreportmanager.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.practice.weeklyreportmanager.dto.ChatRequest;
 import com.practice.weeklyreportmanager.dto.TeamSummaryDTO;
 import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
 import com.practice.weeklyreportmanager.dto.WeeklySummaryDTO;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.util.DigestUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +47,7 @@ import java.util.Map;
  *   - prompts/ai-polish-system.txt：       润色的系统指令（纯静态）
  *   - prompts/ai-summary-system.txt：      个人摘要的系统指令（纯静态）
  *   - prompts/ai-team-summary-system.txt： 团队摘要的系统指令（纯静态）
+ *   - prompts/ai-chat-system.txt：         周报问答的系统指令（纯静态，回答为自由文本，非 JSON）
  *   - prompts/ai-report-user.st：          生成草稿的用户消息模板，含 {userInput} 占位符
  */
 @Slf4j
@@ -75,6 +78,8 @@ public class AIService {
     private final String systemSummaryPrompt;
     /** 团队摘要的系统提示词，来自 ai-team-summary-system.txt */
     private final String systemTeamSummaryPrompt;
+    /** 对话式周报问答的系统提示词，来自 ai-chat-system.txt */
+    private final String systemChatPrompt;
     /** 用户消息模板：渲染后生成 UserMessage，真正动态的内容只有用户输入的 userInput */
     private final PromptTemplate userPromptTemplate;
     /**
@@ -89,6 +94,7 @@ public class AIService {
      * @param systemPolishPromptResource      润色的系统提示词文件
      * @param systemSummaryPromptResource     个人摘要的系统提示词文件
      * @param systemTeamSummaryPromptResource 团队摘要的系统提示词文件
+     * @param systemChatPromptResource        周报问答的系统提示词文件
      * @param userPromptResource              生成草稿的用户消息模板文件
      * @throws IOException                    资源文件缺失或读取失败时抛出，导致应用启动失败（fail-fast）
      */
@@ -101,6 +107,7 @@ public class AIService {
                      @Value("classpath:prompts/ai-polish-system.txt") Resource systemPolishPromptResource,
                      @Value("classpath:prompts/ai-summary-system.txt") Resource systemSummaryPromptResource,
                      @Value("classpath:prompts/ai-team-summary-system.txt") Resource systemTeamSummaryPromptResource,
+                     @Value("classpath:prompts/ai-chat-system.txt") Resource systemChatPromptResource,
                      @Value("classpath:prompts/ai-report-user.st") Resource userPromptResource) throws IOException {
         this.chatClient = chatClientBuilder.build();
         this.objectMapper = objectMapper;
@@ -113,6 +120,7 @@ public class AIService {
         this.systemPolishPrompt = systemPolishPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemSummaryPrompt = systemSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemTeamSummaryPrompt = systemTeamSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
+        this.systemChatPrompt = systemChatPromptResource.getContentAsString(StandardCharsets.UTF_8);
         // 用文件里的模板文本构造 PromptTemplate，调用时再往里填 {userInput}
         this.userPromptTemplate = new PromptTemplate(userPromptResource.getContentAsString(StandardCharsets.UTF_8));
     }
@@ -297,14 +305,71 @@ public class AIService {
     }
 
     /**
+     * 完整性检查的缓存 key：把「本周四字段 + 上周四字段」揉成一个 MD5 指纹。
+     * 内容不变 → key 不变 → 命中缓存，不再调模型；任一字段改了 → key 变化 → 重新检查。
+     *
+     * 谁调用：Spring 在每次进入 checkCompleteness 之前求 @Cacheable 的 key 时，用 SpEL 反射调它，
+     * 业务代码里不需要（也不应该）手动调用，所以 IDE 里会提示"方法未被使用"。
+     *
+     * 必须 public static：@Cacheable 的 key 是 SpEL，而 T(...) 只能调用静态方法（反射还要求 public）。
+     * 必须容忍 null：key 在方法体执行之前求值，此时还没做「前三个字段必填」的校验，
+     * currentReport 及其字段都可能是 null，一旦抛异常，用户连自定义的那句校验提示都看不到。
+     */
+    public static String checkFingerprint(WeeklyReportDTO current, WeeklyReport last) {
+        // 1. 准备承载原始拼接串：先把 8 个字段按固定顺序拼进来，最后一次算 MD5
+        StringBuilder sb = new StringBuilder();
+        // 2. 提取本周的四个字段（current 为空时整组传 null，由 appendFingerprintFields 统一当空串处理）
+        appendFingerprintFields(sb, current == null ? null : current.getOverallProgress(),
+                current == null ? null : current.getWeeklyWorkReport(),
+                current == null ? null : current.getNextWeekPlan(),
+                current == null ? null : current.getOther());
+        // 3. 提取上周的四个字段：上周内容会直接影响「承接关系」那一项的结论，
+        //    所以它也必须参与指纹，否则上周周报改了、本周没改时会命中只对得上旧上周的缓存
+        appendFingerprintFields(sb, last == null ? null : last.getOverallProgress(),
+                last == null ? null : last.getWeeklyWorkReport(),
+                last == null ? null : last.getNextWeekPlan(),
+                last == null ? null : last.getOther());
+        // 4. 整体算 MD5：定长 32 字符，避免把最长 8000 字的周报正文直接当 Redis key；
+        //    固定 UTF-8 编码，保证同一份内容在任何平台/JVM 上算出的指纹都一样
+        return DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 把一组字段按顺序追加进同一个指纹串，每个字段写成「长度:内容|」。
+     *
+     * 为什么要带长度前缀：不加的话 ("ab","c") 和 ("a","bc") 都会拼成 abc，
+     * 两份内容不同的周报会算出同一个 MD5，用户明明改了内容却看到上一次的检查结论。
+     * 带上长度后分别是 2:ab|1:c| 和 1:a|2:bc|，不会撞。
+     *
+     * @param sb     目标拼接串，本周和上周两组共用同一个，最后整体做一次 MD5
+     * @param values 一组字段；null 按空串处理（「其他补充」本来就允许为空）
+     */
+    private static void appendFingerprintFields(StringBuilder sb, String... values) {
+        // 按传入顺序逐个拼接：顺序固定，所以字段位置本身也参与指纹
+        for (String value : values) {
+            // null 归一成空串：字段没填是合法状态，不能因为它是 null 就让 key 计算失败
+            String text = value == null ? "" : value;
+            // 长度 + 冒号 + 原文 + 竖线：长度前缀保证不会串味，竖线只是分隔符，方便肉眼排查
+            sb.append(text.length()).append(':').append(text).append('|');
+        }
+    }
+
+    /**
      * AI 完整性检查：按周报的四个字段分别判断，并把（可选）上周周报一并交给模型做承接关系比对。
      * 前三个字段（总体进度/本周进展/下周目标）必填，方法内会先校验；「其他补充」允许为空。
+     *
+     * 结果按「本周四字段 + 上周四字段」的指纹缓存（见 checkFingerprint）：
+     * 周报内容没改动时重复点击直接命中缓存，不再调模型；改了任意一个字段才会重新检查。
+     * 注意：缓存有效期由 Redis 全局 TTL 决定（当前 5 分钟，见 RedisConfig#cacheManager），
+     * 因此修改 ai-check-system.txt 后 5 分钟内仍可能命中旧结果。
      *
      * @param currentReport  待检查的本周周报四字段
      * @param lastWeekReport 上周周报（可为 null，null 时模型跳过"承接关系"检查）
      * @return 模型按字段列出的缺失项与改进建议
      * @throws IllegalArgumentException 本周周报为 null，或前三个必填字段有空时抛出
      */
+    @Cacheable(value = "aiCheck",
+            key = "T(com.practice.weeklyreportmanager.service.AIService).checkFingerprint(#currentReport, #lastWeekReport)")
     public String checkCompleteness(WeeklyReportDTO currentReport, WeeklyReport lastWeekReport) {
         // 前三个字段为必填，缺失时直接拦截（与保存/提交的 validateContent 规则一致），
         // 避免"前三个字段为空"的非法周报被发给模型。
@@ -345,11 +410,12 @@ public class AIService {
      * 未填写的字段不会发给模型（防止模型脑补内容），返回结果中对应字段为空串，
      * 由前端只回填"已填过"的字段。
      *
-     * @param report 用户当前表单里的四字段内容（允许部分为空）
+     * @param report      用户当前表单里的四字段内容（允许部分为空）
+     * @param checkResult 周报体检结论（可为空；传了就让润色针对结论里指出的问题调整表达）
      * @return 润色后的四字段，未填字段为空串
      * @throws IllegalArgumentException 四个字段全空，或模型返回内容为空 / 格式异常时抛出
      */
-    public WeeklyReportDTO polishReport(WeeklyReportDTO report) {
+    public WeeklyReportDTO polishReport(WeeklyReportDTO report, String checkResult) {
         // 润色允许"只填了部分"：至少一个字段有内容即可（保存/提交时才要求前三个必填）
         if (report == null || allBlank(report)) {
             throw new IllegalArgumentException("请至少填写一项周报内容后再润色");
@@ -357,6 +423,10 @@ public class AIService {
 
         // 只把已填字段发给模型；空字段不出现，模型就不需要也不应脑补它们的内容
         String userText = "【待润色周报】\n" + formatFilledFields(report);
+        // 带上体检结论让润色"对症"：结论只决定改哪里，不能当成新增事实的依据（提示词里已明确禁止）
+        if (!isBlank(checkResult)) {
+            userText += "\n【周报体检结论】\n" + checkResult;
+        }
 
         String content = chatClient.prompt()
                 .system(systemPolishPrompt)
@@ -540,5 +610,57 @@ public class AIService {
         // 未提交成员是系统算出来的，不是模型生成的，所以放在解析之后回填
         dto.setMissingMembers(String.join("、", missingMembers));
         return dto;
+    }
+
+    /**
+     * 对话式周报问答：把该用户在指定时间范围内已提交的周报拼成上下文，连同用户的问题一起交给模型回答。
+     * 与其它 AI 接口不同，这里返回的是给用户直接看的自由文本，不是 JSON，所以提示词里也不要求 JSON 输出。
+     *
+     * @param request 问答请求（userId、question 必填，startDate/endDate 可选）
+     * @return 模型基于周报数据给出的回答；时间范围内没有已提交周报时返回一句固定提示
+     * @throws IllegalArgumentException 开始时间晚于结束时间，或模型未返回内容时抛出
+     */
+    public String chatWithReports(ChatRequest request) {
+        // 未传日期则默认查最近 4 周（本周 + 前 3 周），与个人摘要的时间口径保持一致
+        LocalDate end = request.getEndDate() != null ? request.getEndDate() : LocalDate.now();
+        LocalDate start = request.getStartDate() != null
+                ? request.getStartDate()
+                : DateUtils.getMondayOfWeek(end).minusWeeks(3);
+        if (start.isAfter(end)) {
+            throw new IllegalArgumentException("开始时间不能晚于结束时间");
+        }
+        // week_start_date 存的是周一：起始日期对齐到所在周的周一，否则会漏掉起始日那一周的周报
+        start = DateUtils.getMondayOfWeek(start);
+
+        List<WeeklyReport> reports = weeklyReportService.getSubmittedReportsBetween(request.getUserId(), start, end);
+        if (reports.isEmpty()) {
+            return "在指定时间范围内没有找到已提交的周报";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (WeeklyReport report : reports) {
+            // 带上 weekStartDate：title 只有 MM.dd，跨年时模型分不清先后，无法按时间顺序作答
+            sb.append("【").append(report.getWeekStartDate()).append(" ").append(report.getTitle()).append("】")
+                    .append("\n总体进度：").append(report.getOverallProgress())
+                    .append("\n本周进展：").append(report.getWeeklyWorkReport())
+                    .append("\n下周目标：").append(report.getNextWeekPlan())
+                    .append("\n其他补充：").append(textOrEmpty(report.getOther()))
+                    // 每篇周报之间空一行，否则多周的文本会连在一起（“…其他补充：xxx【09.07~09.11】…”）
+                    .append("\n\n");
+        }
+        String userText = "以下是该用户的周报数据（按时间从早到晚排列）：\n\n"
+                + sb.toString()
+                + "用户问题：" + request.getQuestion();
+
+        String content = chatClient.prompt()
+                .system(systemChatPrompt)
+                .user(userText)
+                .call()
+                .content();
+        // 模型返回空（超时/网络异常等）时给出与其它 AI 接口一致的业务错误，避免前端拿到 null 无从展示
+        if (content == null || content.isBlank()) {
+            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
+        }
+        return content;
     }
 }
