@@ -84,22 +84,11 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
         return weeklyReportMapper.selectOne(wrapper);
     }
 
-    // 1.1 获取上周周报（用于 AI 完整性检查的"承接关系"对比）
-    @Override
-    public WeeklyReport getLastWeekReport(Long userId) {
-        // 计算上周一的日期（本周一往前推 7 天）
-        LocalDate lastMonday = DateUtils.getMondayOfWeek(LocalDate.now()).minusWeeks(1);
-        QueryWrapper<WeeklyReport> wrapper = new QueryWrapper<>();
-        wrapper.eq("week_start_date", lastMonday);
-        wrapper.eq("user_id", userId);
-        return weeklyReportMapper.selectOne(wrapper);
-    }
-
 
     // 2. 保存周报（草稿），不校验周五
     @Override
     @Transactional
-    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true) // 用于删除操作，方法执行后删除缓存中的指定数据
+    @CacheEvict(cacheNames = {"teamView", "personalView", "aiSummary", "teamSummary"}, allEntries = true) // 用于删除操作，方法执行后删除缓存中的指定数据。aiSummary/teamSummary 同样依赖周报内容，必须一起失效，否则用户改完周报后 5 分钟内点「摘要」拿到的还是旧结论
     public WeeklyReport saveWeeklyReport(WeeklyReportDTO dto, Long userId) {
         // 参数校验
         validateContent(dto);
@@ -149,7 +138,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 3. 提交周报
     @Override
     @Transactional
-    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true)
+    @CacheEvict(cacheNames = {"teamView", "personalView", "aiSummary", "teamSummary"}, allEntries = true)
     public WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId) {
         // 校验前三个文本框内容不为空，且四个文本框内容不超过1000字
         validateContent(dto);
@@ -248,7 +237,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 5. 更新周报（按id）
     @Override
     @Transactional
-    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true)
+    @CacheEvict(cacheNames = {"teamView", "personalView", "aiSummary", "teamSummary"}, allEntries = true)
     public WeeklyReport updateWeeklyReport(WeeklyReportDTO dto, Long id, Long userId) {
         // 校验周报是否存在
         WeeklyReport existing = weeklyReportMapper.selectById(id);  // 按主键id查
@@ -282,7 +271,7 @@ public class WeeklyReportServiceImpl implements WeeklyReportService {
     // 6. 提交历史周报
     @Override
     @Transactional
-    @CacheEvict(cacheNames = {"teamView", "personalView"}, allEntries = true)
+    @CacheEvict(cacheNames = {"teamView", "personalView", "aiSummary", "teamSummary"}, allEntries = true)
     public WeeklyReport submitHistoryWeekly(WeeklyReportDTO dto, Long id, Long userId) {
         WeeklyReport existing = weeklyReportMapper.selectById(id);
         if (existing == null) {

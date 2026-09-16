@@ -1,6 +1,7 @@
 package com.practice.weeklyreportmanager.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -10,5 +11,6 @@ import lombok.Data;
 public class AIDraftRequest {
 
     @NotBlank(message = "请先填写本周工作内容")
+    @Size(max = 2000, message = "描述太长了，请精简到 2000 字以内")
     private String input;
 }

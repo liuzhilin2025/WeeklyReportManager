@@ -112,25 +112,13 @@ public class WeeklyReportController {
     }
 
     /**
-     * AI 完整性检查：按四个字段（总体进度/本周进展/下周目标/其他补充）分别判断，
-     * 并自动带上该用户上周的周报供模型做"承接关系"比对。
-     */
-    @PostMapping("/ai/check")
-    public Result<String> checkCompleteness(@RequestBody WeeklyReportDTO dto,
-                                            @RequestParam(required = false) Long userId) {
-        Long effectiveUserId = userId != null ? userId : 1L;
-        WeeklyReport lastWeekReport = weeklyReportService.getLastWeekReport(effectiveUserId);
-        return Result.success(aiService.checkCompleteness(dto, lastWeekReport));
-    }
-
-    /**
-     * AI 润色，也是「周报体检」的第二段：请求里带上 checkResult（体检结论）时，
-     * 润色会针对结论里指出的问题调整表达，但依然严禁新增原文没有的事实与数据。
-     * 示例：POST /api/reports/ai/polish  body: {"report":{...四字段...},"checkResult":"问题 1：..."}
+     * AI 润色：把表单里的四字段交给模型做语言与格式优化，返回润色后的四字段供前端逐字段对比。
+     * 允许只填了部分字段；未填的字段不会发给模型，返回结果里对应字段为空串。
+     * 示例：POST /api/reports/ai/polish  body: {"overallProgress":"...","weeklyWorkReport":"...","nextWeekPlan":"...","other":"..."}
      */
     @PostMapping("/ai/polish")
-    public Result<WeeklyReportDTO> polishReport(@RequestBody AIPolishRequest request) {
-        return Result.success(aiService.polishReport(request.getReport(), request.getCheckResult()));
+    public Result<WeeklyReportDTO> polishReport(@RequestBody WeeklyReportDTO report) {
+        return Result.success(aiService.polishReport(report));
     }
 
     @GetMapping("/ai/summary")

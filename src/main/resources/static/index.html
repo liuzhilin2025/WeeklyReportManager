@@ -316,11 +316,11 @@
                 </div>
             </div>
 
-            <!-- AI 操作栏：放在输入框下方，填完内容即可生成草稿 / 做一次周报体检 -->
+            <!-- AI 操作栏：放在输入框下方，填完内容即可生成草稿 / 让 AI 润色 -->
             <div class="ai-toolbar">
-                <span class="text-muted small me-auto">AI 辅助：填完内容后可生成草稿，或做一次周报体检（先出问题清单，再决定要不要按建议润色）</span>
+                <span class="text-muted small me-auto">AI 辅助：填完内容后可生成草稿，或让 AI 润色（逐字段对比后再决定是否采纳）</span>
                 <button class="btn btn-ai" onclick="openAIDraft()" id="btnAIDraft">AI 辅助撰写</button>
-                <button class="btn btn-ai" onclick="runHealthCheck()" id="btnHealthCheck">周报体检</button>
+                <button class="btn btn-ai" onclick="polishReport()" id="btnPolish">AI 润色</button>
             </div>
         </div>
     </div>
@@ -464,26 +464,6 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-reset" data-bs-dismiss="modal">取消</button>
                 <button type="button" class="btn btn-submit" id="btnGenerateDraft" onclick="generateAIDraft()">生成草稿</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ========== 周报体检弹窗：先出问题清单，再让用户决定要不要按建议润色 ========== -->
-<div class="modal fade" id="aiCheckModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">周报体检</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="report-field" id="aiCheckResult" style="white-space:pre-wrap; margin:0;">检查中...</div>
-            </div>
-            <div class="modal-footer">
-                <span class="text-muted small me-auto">润色结果会先给你逐字段对比，确认后才写回表单</span>
-                <button type="button" class="btn btn-ai" id="btnPolishByAdvice" onclick="polishByAdvice()" disabled>按建议润色</button>
-                <button type="button" class="btn btn-reset" data-bs-dismiss="modal">关闭</button>
             </div>
         </div>
     </div>
@@ -657,7 +637,6 @@
     let lastLoadedContent = { overallProgress: '', weeklyWorkReport: '', nextWeekPlan: '', other: '' };  // 最近一次加载到表单的内容（用于未保存检测）
     let aiGenerating = false;   // 防止 AI 生成请求被重复提交
     let aiPolish = false;       // 防止 AI 润色请求被重复提交
-    let aiChecking = false;     // 防止「周报体检」请求被重复提交
 
     // ==================== AI 请求通用控制（超时 / 取消 / 计时） ====================
     const AI_TIMEOUT_MS = 90000;   // 单次 AI 请求最长等待时间，超时自动中断
@@ -1203,13 +1182,12 @@
             });
     }
 
-    // ==================== AI 润色（周报体检的第二段） ====================
-    // 由「周报体检」弹窗的「按建议润色」触发：把体检结论一起交给模型，让它针对结论里指出的问题改。
+    // ==================== AI 润色 ====================
+    // 由表单下方 AI 工具栏的「AI 润色」触发：把当前已填内容交给模型做语言与格式优化。
     // 后端会守住「不许新增原文没有的事实/数据」这条底线（见 ai-polish-system.txt）。
-    let lastCheckResult = '';   // 最近一次体检结论，「按建议润色」时带给后端；为空即普通润色
 
     // 结果不直接覆盖表单：先存原文与润色结果，弹对比弹窗由用户逐字段勾选
-    function polishByAdvice() {
+    function polishReport() {
         if (aiPolish) return;   // 防止重复点击
         const payload = currentContentSnapshot();
         const hasAny = [payload.overallProgress, payload.weeklyWorkReport, payload.nextWeekPlan, payload.other].some(v => v && v.trim());
@@ -1217,28 +1195,20 @@
             showToast('请先填写要润色的内容', 'error');
             return;
         }
-        const btn = document.getElementById('btnPolishByAdvice');
+        const btn = document.getElementById('btnPolish');
         aiPolish = true;
         pendingPolish = null;   // 清掉上一次结果，避免润色失败后「应用选中」写回旧内容
-        setAIBtnLoading(btn, true, '润色中...', '按建议润色');
-        // 体检弹窗让位给对比弹窗：润色结果仍然走「逐字段勾选 → 应用」这套流程
+        setAIBtnLoading(btn, true, '润色中...', 'AI 润色');
+        // 先弹出对比弹窗展示加载态，模型返回后再替换为逐字段的「原文 → 润色后」对比
         const diffBody = document.getElementById('aiPolishDiffBody');
-        diffBody.innerHTML = aiLoadingBlock('AI 正在按体检建议润色...');
-        const checkModalEl = document.getElementById('aiCheckModal');
-        const showDiffModal = () => bootstrap.Modal.getOrCreateInstance(document.getElementById('aiPolishDiffModal')).show();
-        if (checkModalEl.classList.contains('show')) {
-            // 必须等体检弹窗「完全隐藏」再开对比弹窗，否则两个 backdrop 会叠在一起、body 的滚动锁也可能残留
-            checkModalEl.addEventListener('hidden.bs.modal', showDiffModal, { once: true });
-            bootstrap.Modal.getOrCreateInstance(checkModalEl).hide();
-        } else {
-            showDiffModal();
-        }
+        diffBody.innerHTML = aiLoadingBlock('AI 正在润色...');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiPolishDiffModal')).show();
         const ctrl = newAIRequest();
         apiFetch(`${BASE_URL}/api/reports/ai/polish`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // 四字段包在 report 里，体检结论放 checkResult；结论为空就是普通润色
-            body: JSON.stringify({ report: payload, checkResult: lastCheckResult || null }),
+            // 直接传四字段 DTO；未填的字段后端不会发给模型
+            body: JSON.stringify(payload),
             signal: ctrl.signal
         })
             .then(res => res.json())
@@ -1263,63 +1233,7 @@
             .finally(() => {
                 aiPolish = false;
                 endAIRequest();
-                setAIBtnLoading(btn, false, '', '按建议润色');
-            });
-    }
-
-    // ==================== AI 周报体检（检查 → 问题清单 → 按建议润色） ====================
-    // 把当前四个字段发给 AI 体检，结论以多行文本展示在弹窗中，并留给「按建议润色」复用。
-    // 后端按周报内容做了缓存：内容没改就再点一次「周报体检」不会再调模型。
-    function runHealthCheck() {
-        if (aiChecking) return;   // 防止重复点击
-        const payload = currentContentSnapshot();
-        // 前三个字段必填（与后端校验一致），空时先在前端拦截
-        if (!(payload.overallProgress && payload.overallProgress.trim())
-            || !(payload.weeklyWorkReport && payload.weeklyWorkReport.trim())
-            || !(payload.nextWeekPlan && payload.nextWeekPlan.trim())) {
-            showToast('请先填写总体进度、本周进展、下周目标', 'error');
-            return;
-        }
-        const btn = document.getElementById('btnHealthCheck');
-        const adviceBtn = document.getElementById('btnPolishByAdvice');
-        aiChecking = true;
-        lastCheckResult = '';        // 新一次体检：先丢掉上一次的结论，免得润色用到过期建议
-        adviceBtn.disabled = true;   // 请求期间先禁用，避免拿着空结论去润色
-        setAIBtnLoading(btn, true, '体检中...', '周报体检');
-        // 先弹窗展示加载态，模型返回后再替换为体检结论
-        const resultEl = document.getElementById('aiCheckResult');
-        resultEl.innerHTML = aiLoadingBlock('AI 正在检查周报...');
-        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiCheckModal')).show();
-        const ctrl = newAIRequest();
-        apiFetch(`${BASE_URL}/api/reports/ai/check?userId=${getCurrentUserId()}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: ctrl.signal
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.code === 200) {
-                    lastCheckResult = data.data || '内容完整，无缺失项';
-                    resultEl.textContent = lastCheckResult;
-                } else {
-                    resultEl.innerHTML = '<span class="text-danger">检查失败：'
-                        + escapeHtml(data.message || 'AI 返回格式异常，请重试') + '</span>';
-                }
-            })
-            .catch(err => {
-                if (err && err.name === 'AbortError') {
-                    resultEl.textContent = (aiAbortReason === 'timeout') ? 'AI 响应超时，请关闭后重试' : '已取消检查';
-                } else {
-                    resultEl.textContent = err.message || '网络错误，请稍后重试';
-                }
-            })
-            .finally(() => {
-                aiChecking = false;
-                endAIRequest();
-                setAIBtnLoading(btn, false, '', '周报体检');
-                // 体检失败也让润色可用（此时没有结论，等于普通润色），避免把润色功能堵死
-                adviceBtn.disabled = false;
+                setAIBtnLoading(btn, false, '', 'AI 润色');
             });
     }
 

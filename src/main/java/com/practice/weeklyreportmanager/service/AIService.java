@@ -1,23 +1,18 @@
 package com.practice.weeklyreportmanager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.practice.weeklyreportmanager.dto.ChatRequest;
-import com.practice.weeklyreportmanager.dto.TeamSummaryDTO;
-import com.practice.weeklyreportmanager.dto.WeeklyReportDTO;
-import com.practice.weeklyreportmanager.dto.WeeklySummaryDTO;
+import com.practice.weeklyreportmanager.dto.*;
 import com.practice.weeklyreportmanager.entity.WeeklyReport;
 import com.practice.weeklyreportmanager.utils.DateUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
+import org.springframework.web.client.RestClientException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,27 +23,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AI 辅助撰写服务：把用户输入 / 已有周报组装成对话请求发给大模型，再把返回结果解析成前端要用的结构。
+ * AI 辅助服务：把「提示词模板 + 动态内容」组装成一次大模型请求，再把返回结果转成前端要用的结构。
  *
- * 职责：
- * 1. 把「提示词模板文件 + 动态内容」组装成一次大模型对话请求（借助 ChatClient）；
- * 2. 把模型返回的原始文本解析成 DTO，供前端回填 / 展示。
- *
- * 对外提供 5 类能力：
+ * 对外 5 个入口：
  *   - generateDraft      生成草稿（结构化 DTO）
- *   - checkCompleteness  完整性检查（自由文本）
  *   - polishReport       润色（结构化 DTO）
  *   - summarizeHistory   个人近 4 周摘要（结构化 DTO）
  *   - summarizeTeam      团队单周汇总（结构化 DTO）
+ *   - chatWithReports    周报问答（自由文本，不是 JSON）
  *
- * 提示词不再写死在 Java 里，而是放在 resources 下的模板文件中：
- *   - prompts/ai-report-system.txt：       生成草稿的系统指令（纯静态，启动时读入内存）
- *   - prompts/ai-check-system.txt：        完整性检查的系统指令（纯静态）
- *   - prompts/ai-polish-system.txt：       润色的系统指令（纯静态）
- *   - prompts/ai-summary-system.txt：      个人摘要的系统指令（纯静态）
- *   - prompts/ai-team-summary-system.txt： 团队摘要的系统指令（纯静态）
- *   - prompts/ai-chat-system.txt：         周报问答的系统指令（纯静态，回答为自由文本，非 JSON）
- *   - prompts/ai-report-user.st：          生成草稿的用户消息模板，含 {userInput} 占位符
+ * 前四个入口的流程一致：callForEntity 发请求 → 按各自上限截断字段 → 校验「到底有没有内容」。
+ *
+ * 提示词不在 Java 里写死，放在 resources/prompts/ 下，启动时读进内存：
+ *   - ai-report-system.txt / ai-polish-system.txt / ai-summary-system.txt
+ *   - ai-team-summary-system.txt / ai-chat-system.txt（以上都是系统指令）
+ *   - ai-report-user.st（生成草稿的用户消息模板，含 {userInput} 占位符）
  */
 @Slf4j
 @Service
@@ -60,69 +49,93 @@ public class AIService {
     /** 摘要每个部分的最大长度：prompt 约定最多 5 条 × 50 字，留一点余量给编号和换行 */
     private static final int MAX_SUMMARY_LENGTH = 300;
 
-    /** 周报数据查询走 WeeklyReportService，AIService 只负责拼提示词和调模型（构造器注入，便于单测替换） */
+    /**
+     * 单次请求里「拼给模型的周报数据」总长度上限（按字符数）。
+     *
+     * 为什么必须有：问答接口的时间范围由用户决定，个人摘要的正文长度由用户书写决定，
+     * 两者都没有天然上限。用户把范围拉到一年，就是 52 篇 × 最多 4000 字 ≈ 20 万字，
+     * 一次请求的延迟和费用会线性上涨，还可能直接超出模型的上下文窗口。
+     *
+     * 4000 的来源：4 周 × 4 字段 × 1000 字（MAX_FIELD_LENGTH）最坏约 1.6 万字，
+     * 取 4000 是「正常情况下装得下最近几周、异常情况下不会失控」的折中，
+     * 超出部分由 buildReportContext 按「优先保留最近的周报」规则取舍。
+     */
+    private static final int MAX_PROMPT_REPORT_CHARS = 4000;
+
+    /** 周报数据查询走 WeeklyReportService，AIService 只负责拼提示词、调模型、收拾返回值 */
     private final WeeklyReportService weeklyReportService;
     private final MockUserService mockUserService;
 
-    /** Spring AI 的大模型客户端：负责发请求、收回答（由构造器注入的 Builder 构建） */
+    /** Spring AI 的大模型客户端，由构造器注入的 Builder 构建 */
     private final ChatClient chatClient;
-    /** Jackson 的 JSON 工具，用来把模型返回的文本解析成 JsonNode 树 */
-    private final ObjectMapper objectMapper;
-    /** 生成草稿的系统提示词，启动时从 ai-report-system.txt 读入（静态文本，不含占位符） */
+    /** 生成草稿的系统提示词，启动时从 ai-report-system.txt 读入 */
     private final String systemPrompt;
-    /** 完整性检查的系统提示词，来自 ai-check-system.txt */
-    private final String systemCheckPrompt;
     /** 润色的系统提示词，来自 ai-polish-system.txt */
     private final String systemPolishPrompt;
     /** 个人摘要的系统提示词，来自 ai-summary-system.txt */
     private final String systemSummaryPrompt;
     /** 团队摘要的系统提示词，来自 ai-team-summary-system.txt */
     private final String systemTeamSummaryPrompt;
-    /** 对话式周报问答的系统提示词，来自 ai-chat-system.txt */
+    /** 周报问答的系统提示词，来自 ai-chat-system.txt */
     private final String systemChatPrompt;
-    /** 用户消息模板：渲染后生成 UserMessage，真正动态的内容只有用户输入的 userInput */
+    /** 用户消息模板：渲染后得到 UserMessage，唯一的动态内容就是用户输入的 userInput */
     private final PromptTemplate userPromptTemplate;
+
     /**
-     * 构造器注入：AIService 被 @Service 托管，Spring 启动时会自动调用该构造器并传入所有依赖。
+     * 构造器注入：AIService 由 Spring 托管，启动时自动调用本构造器把依赖和提示词都装好。
      *
-     * @param chatClientBuilder               Spring AI 自动配置好的 ChatClient 建造器（可定制模型/超时等）
-     * @param objectMapper                    Spring Boot 自动配置的 Jackson ObjectMapper
-     * @param weeklyReportService             周报业务服务，用于读取待总结的历史周报
-     * @param mockUserService                 模拟用户服务，提供成员名单与用户名（团队汇总用）
-     * @param systemPromptResource            生成草稿的系统提示词文件（classpath 根目录下的 prompts/ 目录）
-     * @param systemCheckPromptResource       完整性检查的系统提示词文件
-     * @param systemPolishPromptResource      润色的系统提示词文件
-     * @param systemSummaryPromptResource     个人摘要的系统提示词文件
-     * @param systemTeamSummaryPromptResource 团队摘要的系统提示词文件
-     * @param systemChatPromptResource        周报问答的系统提示词文件
-     * @param userPromptResource              生成草稿的用户消息模板文件
-     * @throws IOException                    资源文件缺失或读取失败时抛出，导致应用启动失败（fail-fast）
+     * 提示词以 Resource 注入、在这里一次性读成 String，之后每次请求复用内存里这一份。
+     * 文件缺失会抛 IOException 让应用直接启动失败（fail-fast），而不是等用户点了按钮才报错。
+     *
+     * @param chatClientBuilder Spring AI 自动配置好的 ChatClient 建造器（可定制模型/超时等）
+     * @throws IOException      提示词文件缺失或读取失败时抛出，导致应用启动失败
      */
     public AIService(ChatClient.Builder chatClientBuilder,
-                     ObjectMapper objectMapper,
                      WeeklyReportService weeklyReportService,
                      MockUserService mockUserService,
                      @Value("classpath:prompts/ai-report-system.txt") Resource systemPromptResource,
-                     @Value("classpath:prompts/ai-check-system.txt") Resource systemCheckPromptResource,
                      @Value("classpath:prompts/ai-polish-system.txt") Resource systemPolishPromptResource,
                      @Value("classpath:prompts/ai-summary-system.txt") Resource systemSummaryPromptResource,
                      @Value("classpath:prompts/ai-team-summary-system.txt") Resource systemTeamSummaryPromptResource,
                      @Value("classpath:prompts/ai-chat-system.txt") Resource systemChatPromptResource,
                      @Value("classpath:prompts/ai-report-user.st") Resource userPromptResource) throws IOException {
         this.chatClient = chatClientBuilder.build();
-        this.objectMapper = objectMapper;
         this.weeklyReportService = weeklyReportService;
         this.mockUserService = mockUserService;
-        // 把文件内容整体读成 UTF-8 字符串，只读一次，之后复用到每次请求
         this.systemPrompt = systemPromptResource.getContentAsString(StandardCharsets.UTF_8);
-        // Resource是[提示词外置化]的载体，负责把resources/prompts/下的模板文件安全、可复用、启动即加载地送进AIService
-        this.systemCheckPrompt = systemCheckPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemPolishPrompt = systemPolishPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemSummaryPrompt = systemSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemTeamSummaryPrompt = systemTeamSummaryPromptResource.getContentAsString(StandardCharsets.UTF_8);
         this.systemChatPrompt = systemChatPromptResource.getContentAsString(StandardCharsets.UTF_8);
-        // 用文件里的模板文本构造 PromptTemplate，调用时再往里填 {userInput}
         this.userPromptTemplate = new PromptTemplate(userPromptResource.getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 统一发一次「结构化输出」请求：系统指令 + 用户消息 → DTO。四个入口共用这一条路。
+     *
+     * 两类失败要分开报，因为用户能做的事不一样：
+     * - RestClientException：网络超时、鉴权失败、额度用尽等，属于「服务不可用」，稍后重试有意义；
+     * - 其它 RuntimeException：`.entity()` 拿到回答后在本地做 JSON→DTO 转换，转换失败说明模型没按格式输出，
+     *   重试多少次都一样。（HTTP 在 `.call()` 里就发完了，所以这两类异常的来源不会串。）
+     *
+     * @param errorLabel 日志里区分是哪个入口出的问题，如「草稿」「团队汇总」
+     * <T>位于 private 和返回值之间，是泛型声明。它告诉编译器：“本方法内部要使用一个类型参数，名字叫 T，具体是什么类型，调用时再确定。”
+     * T 位于 <T> 后面，是返回类型。意思是“这个方法会返回一个 T 类型的对象。”
+     */
+    private <T> T callForEntity(String systemPrompt, Message userMessage, Class<T> type, String errorLabel) {
+        try {
+            return chatClient.prompt()
+                    .system(systemPrompt)    // 存入系统提示词
+                    .messages(userMessage)   // 存入用户消息
+                    .call()
+                    .entity(type);           // 把大模型返回的文本反序列化为指定的Java实体类
+        } catch (RestClientException e) {
+            log.error("AI{}调用失败：服务不可用或鉴权异常", errorLabel, e);
+            throw new IllegalStateException("AI 服务暂时不可用，请稍后重试", e);
+        } catch (RuntimeException e) {
+            log.warn("AI{}返回内容无法转成 DTO", errorLabel, e);
+            throw new IllegalArgumentException("AI返回格式异常，请稍后重试");
+        }
     }
 
     /**
@@ -130,311 +143,110 @@ public class AIService {
      *
      * @param userInput 用户描述的本周工作（关键词或流水记录）
      * @return 四个字段与 WeeklyReportDTO 一一对应的草稿
-     * @throws IllegalArgumentException 模型未返回内容、返回格式异常，或前三个核心字段全空时抛出
+     * @throws IllegalArgumentException 模型没吐出可用内容时抛出
+     * @throws IllegalStateException    AI 服务不可用时抛出
      */
     public WeeklyReportDTO generateDraft(String userInput) {
-        // 1. 渲染用户消息模板：把占位符 {userInput} 替换成用户真实输入，得到一个 UserMessage
+        // 渲染用户消息模板：把 {userInput} 换成用户真实输入
         Message userMessage = userPromptTemplate.createMessage(Map.of("userInput", userInput));
+        // 结构化输出
+        WeeklyReportDTO dto = callForEntity(systemPrompt, userMessage, WeeklyReportDTO.class, "草稿");
 
-        // 2. 发起一次对话：system 用静态指令，user 用刚渲染好的消息，同步等待模型返回文本
-        String content = chatClient.prompt()
-                .system(systemPrompt)   // 设置“系统角色”消息（全局指令/人设），取自 ai-report-system.txt 的静态文本
-                .messages(userMessage)  // 已渲染好的 UserMessage
-                // 真正发送请求并同步阻塞等待模型返回，等价于一次完整的大模型调用；
-                // 返回 ChatResponse（含模型回答、token 用量、元信息等）
-                .call()
-                .content();            // 从 ChatResponse 中取出模型生成的纯文本答案，即下面 parseDraft(content) 要解析的字符串
-
-        // 3. 把模型返回的原始字符串解析成结构化的 DTO
-        WeeklyReportDTO dto = parseDraft(content);
-        // 生成草稿必须产出核心内容（总体进度/本周进展/下周目标至少其一非空），
-        // 否则说明用户输入信息量不够，给一个可理解的错误提示
-        // isBlank：判断单个字符串是否为null或纯空白
-        if (isBlank(dto.getOverallProgress()) && isBlank(dto.getWeeklyWorkReport()) && isBlank(dto.getNextWeekPlan())) {
+        // 截断保护，每个字段不能超过1000个字
+        limitReportFields(dto);
+        // 三个核心字段至少一个非空。全空说明用户给的料太少、模型也没得编，
+        // 这时候返回空草稿会直接盖掉用户正在写的表单，不如报错让他补点描述
+        if (dto == null || (isBlank(dto.getOverallProgress()) && isBlank(dto.getWeeklyWorkReport())
+                && isBlank(dto.getNextWeekPlan()))) {
             throw new IllegalArgumentException("AI 生成内容为空，请补充更多工作描述后重试");
         }
         return dto;
     }
 
-    /**
-     * 把模型返回的文本解析成 WeeklyReportDTO。
-     * 兼容模型偶尔输出 ```json 围栏或前后夹杂说明文字的情况。
-     * 避免围栏的方式：
-     * 1. 提示词约束：在 system prompt 里写“只输出合法 JSON，不要 markdown 代码块”
-     * 2. 代码容错截取：用 indexOf('{') 和 lastIndexOf('}') 截取主体
-     */
-    private WeeklyReportDTO parseDraft(String raw) {
-        // 模型什么都没返回（网络异常/超时等原因导致内容为空）——直接报业务错误
-        if (raw == null || raw.isBlank()) {
-            throw new IllegalArgumentException("AI 未返回内容，请稍后重试");
-        }
-        // 截取第一个 { 到最后一个 } 之间的子串：
-        // 模型偶尔会夹带 "```json" 围栏或前后解释性废话，只取 JSON 主体可提高解析成功率
-        String body = raw.trim();
-        int start = body.indexOf('{');
-        int end = body.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            try {
-                // 把 JSON 子串解析成 JsonNode 树，之后才能按字段名取值
-                JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
-                if (root != null && root.isObject()) {
-                    // 逐个字段取出来，extract() 兼容中文别名；limit() 做超长截断
-                    WeeklyReportDTO dto = new WeeklyReportDTO();
-                    dto.setOverallProgress(limit(extract(root, "overallProgress", "总体进度", "整体进度")));
-                    dto.setWeeklyWorkReport(limit(extract(root, "weeklyWorkReport", "本周进展", "本周工作", "本周完成")));
-                    dto.setNextWeekPlan(limit(extract(root, "nextWeekPlan", "下周目标", "下周计划", "下周安排")));
-                    dto.setOther(limit(extract(root, "other", "其他补充", "其他", "补充")));
-                    return dto;
-                }
-            } catch (JsonProcessingException e) {
-                // JSON 语法错误：不往上抛，落到方法末尾统一的"格式异常"提示；
-                // 这里留日志（带原始内容），否则线上只能看到"格式异常"四个字，无从排查
-                log.warn("AI 草稿返回内容解析失败，原始内容：{}", raw, e);
-            }
-        }
-        throw new IllegalArgumentException("AI 返回格式异常，请稍后重试");
-    }
-
-    /**
-     * 把模型返回的文本解析成 WeeklySummaryDTO（个人历史周报摘要）。
-     * 结构与 parseDraft 一致，只是目标字段不同，因此同样做「围栏/废话容错 + JSON 主体截取」。
-     */
-    private WeeklySummaryDTO parseSummary(String raw) {
-        // 模型什么都没返回（网络异常/超时等原因导致内容为空）——直接报业务错误
-        if (raw == null || raw.isBlank()) {
-            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
-        }
-        // 截取第一个 { 到最后一个 } 之间的子串，去掉 ```json 围栏和前后解释性文字
-        String body = raw.trim();
-        int start = body.indexOf('{');
-        int end = body.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            try {
-                // 把 JSON 子串解析成 JsonNode 树，之后才能按字段名取值
-                JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
-                // 确认解析出来的是JSON对象
-                if (root != null && root.isObject()) {
-                    WeeklySummaryDTO dto = new WeeklySummaryDTO();
-                    // 三个字段都是字符串（内部按 1、2、3 编号，换行分隔），复用 extract() 取值；
-                    // 截断用摘要自己的上限 MAX_SUMMARY_LENGTH，不套周报正文的 1000 字
-                    dto.setAchievements(limit(extract(root, "achievements", "核心产出", "主要成果", "本期产出"), MAX_SUMMARY_LENGTH));
-                    dto.setIssues(limit(extract(root, "issues", "问题", "持续问题", "风险"), MAX_SUMMARY_LENGTH));
-                    dto.setSuggestions(limit(extract(root, "suggestions", "建议", "关注方向", "下一步建议"), MAX_SUMMARY_LENGTH));
-                    return dto;
-                }
-            } catch (JsonProcessingException e) {
-                // 同上：落到统一的"格式异常"提示，日志里留原始内容便于排查
-                log.warn("AI 个人摘要返回内容解析失败，原始内容：{}", raw, e);
-            }
-        }
-        throw new IllegalArgumentException("AI返回格式异常，请稍后重试");
-    }
-
-    /**
-     * 把模型返回的文本解析成 TeamSummaryDTO（团队周报汇总）。
-     * 与个人摘要结构相同，容错逻辑一致，只是目标字段换成团队三项。
-     * 注意：未提交成员（missingMembers）不在这里解析，由调用方在解析后回填。
-     */
-    private TeamSummaryDTO parseTeamSummary(String raw) {
-        // 模型什么都没返回（网络异常/超时等原因导致内容为空）——直接报业务错误
-        if (raw == null || raw.isBlank()) {
-            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
-        }
-        // 截取第一个 { 到最后一个 } 之间的子串，去掉 ```json 围栏和前后解释性文字
-        String body = raw.trim();
-        int start = body.indexOf('{');
-        int end = body.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            try {
-                // 把 JSON 子串解析成 JsonNode 树，之后才能按字段名取值
-                JsonNode root = objectMapper.readTree(body.substring(start, end + 1));
-                // 确认解析出来的是JSON对象
-                if (root != null && root.isObject()) {
-                    TeamSummaryDTO dto = new TeamSummaryDTO();
-                    // 三个字段都是字符串，复用 extract() 取值（兼容中文别名），按摘要上限 MAX_SUMMARY_LENGTH 截断
-                    dto.setTeamProgress(limit(extract(root, "teamProgress", "团队进展", "整体进展", "团队产出"), MAX_SUMMARY_LENGTH));
-                    dto.setCommonIssues(limit(extract(root, "commonIssues", "共性问题", "共同问题", "团队风险"), MAX_SUMMARY_LENGTH));
-                    dto.setCollaborationNeeds(limit(extract(root, "collaborationNeeds", "协作需求", "需要协作", "协作事项"), MAX_SUMMARY_LENGTH));
-                    return dto;
-                }
-            } catch (JsonProcessingException e) {
-                // 同上：落到统一的"格式异常"提示，日志里留原始内容便于排查
-                log.warn("AI 团队摘要返回内容解析失败，原始内容：{}", raw, e);
-            }
-        }
-        throw new IllegalArgumentException("AI返回格式异常，请稍后重试");
-    }
-
-    /**
-     * 按字段名从 JSON 节点中取值，支持多个中文别名。
-     * 模型偶尔不守规矩、用了中文键名（如"本周进展"）而不是约定的英文键，
-     * 这里按顺序逐个尝试，取到第一个非空值即返回；全部找不到则返回空串。
-     * 在方法内部，aliases 会被当作 String[] 数组 来处理。写成 String... 只是一种简写
-     */
-    private String extract(JsonNode node, String... aliases) {  // 可变参数（...）必须放在方法参数列表的最后一个位置
-        for (String alias : aliases) {
-            JsonNode field = node.get(alias);
-            // 前者判断 node.get(alias) 是否真的从 JSON 里找到了这个字段，后者判断这个字段的值是不是 JSON 中的字面量 null
-            if (field != null && !field.isNull()) {
-                // 字符串节点用 asText()；万一值是数字/数组等，用 toString() 兜底转成文本
-                String value = field.isTextual() ? field.asText() : field.toString();
-                if (!value.isBlank()) {
-                    return value.trim();
-                }
-            }
-        }
-        return "";
-    }
-
-    /**
-     * 截断的默认重载：固定用 MAX_FIELD_LENGTH（1000 字），与前端 textarea 的 maxlength 保持一致，
-     * 避免超长内容破坏前端/数据库的字段长度限制。周报正文字段走这里。
-     * 摘要类字段上限不同（300 字），需改用带 maxLength 的重载。
-     */
+    /** 按 MAX_FIELD_LENGTH（1000 字）截断，周报正文用这个上限，与前端 textarea 的 maxlength 一致 */
     private String limit(String value) {
         return limit(value, MAX_FIELD_LENGTH);
     }
 
-    /**
-     * 按调用方传入的上限截断（真正干活的方法）：
-     * 上限完全由实参决定——周报正文传 MAX_FIELD_LENGTH(1000)，摘要部分传 MAX_SUMMARY_LENGTH(300)，
-     * 这里不写死任何长度。按字符数（String.length()）截断，不做代理对（emoji 等）的边界保护。
-     */
+    /** 按指定上限截断；null 原样返回（模型漏字段时不能让截断本身抛 NPE）。按字符数切，不处理 emoji 之类的代理对 */
     private String limit(String value, int maxLength) {
-        return value.length() > maxLength ? value.substring(0, maxLength) : value;
+        return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 
     /**
-     * 完整性检查的缓存 key：把「本周四字段 + 上周四字段」揉成一个 MD5 指纹。
-     * 内容不变 → key 不变 → 命中缓存，不再调模型；任一字段改了 → key 变化 → 重新检查。
+     * 把草稿/润色结果的四个字段各截到 1000 字。
      *
-     * 谁调用：Spring 在每次进入 checkCompleteness 之前求 @Cacheable 的 key 时，用 SpEL 反射调它，
-     * 业务代码里不需要（也不应该）手动调用，所以 IDE 里会提示"方法未被使用"。
-     *
-     * 必须 public static：@Cacheable 的 key 是 SpEL，而 T(...) 只能调用静态方法（反射还要求 public）。
-     * 必须容忍 null：key 在方法体执行之前求值，此时还没做「前三个字段必填」的校验，
-     * currentReport 及其字段都可能是 null，一旦抛异常，用户连自定义的那句校验提示都看不到。
+     * 为什么必须在 .entity() 之后手动做：.entity() 只负责把模型输出的 JSON 反序列化成 DTO，不做长度校验，
+     * 而模型偶尔会不守提示词里「每个字段不超过 1000 字」的约定；这些内容会回填表单再落库，
+     * 超长会在保存时被 validateContent 拦下（WeeklyReportServiceImpl:49），用户只能自己删——不如在这里就切掉。
      */
-    public static String checkFingerprint(WeeklyReportDTO current, WeeklyReport last) {
-        // 1. 准备承载原始拼接串：先把 8 个字段按固定顺序拼进来，最后一次算 MD5
-        StringBuilder sb = new StringBuilder();
-        // 2. 提取本周的四个字段（current 为空时整组传 null，由 appendFingerprintFields 统一当空串处理）
-        appendFingerprintFields(sb, current == null ? null : current.getOverallProgress(),
-                current == null ? null : current.getWeeklyWorkReport(),
-                current == null ? null : current.getNextWeekPlan(),
-                current == null ? null : current.getOther());
-        // 3. 提取上周的四个字段：上周内容会直接影响「承接关系」那一项的结论，
-        //    所以它也必须参与指纹，否则上周周报改了、本周没改时会命中只对得上旧上周的缓存
-        appendFingerprintFields(sb, last == null ? null : last.getOverallProgress(),
-                last == null ? null : last.getWeeklyWorkReport(),
-                last == null ? null : last.getNextWeekPlan(),
-                last == null ? null : last.getOther());
-        // 4. 整体算 MD5：定长 32 字符，避免把最长 8000 字的周报正文直接当 Redis key；
-        //    固定 UTF-8 编码，保证同一份内容在任何平台/JVM 上算出的指纹都一样
-        return DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
+    private void limitReportFields(WeeklyReportDTO dto) {
+        if (dto == null) {
+            return;
+        }
+        dto.setOverallProgress(limit(dto.getOverallProgress()));
+        dto.setWeeklyWorkReport(limit(dto.getWeeklyWorkReport()));
+        dto.setNextWeekPlan(limit(dto.getNextWeekPlan()));
+        dto.setOther(limit(dto.getOther()));
     }
 
-    /**
-     * 把一组字段按顺序追加进同一个指纹串，每个字段写成「长度:内容|」。
-     *
-     * 为什么要带长度前缀：不加的话 ("ab","c") 和 ("a","bc") 都会拼成 abc，
-     * 两份内容不同的周报会算出同一个 MD5，用户明明改了内容却看到上一次的检查结论。
-     * 带上长度后分别是 2:ab|1:c| 和 1:a|2:bc|，不会撞。
-     *
-     * @param sb     目标拼接串，本周和上周两组共用同一个，最后整体做一次 MD5
-     * @param values 一组字段；null 按空串处理（「其他补充」本来就允许为空）
-     */
-    private static void appendFingerprintFields(StringBuilder sb, String... values) {
-        // 按传入顺序逐个拼接：顺序固定，所以字段位置本身也参与指纹
-        for (String value : values) {
-            // null 归一成空串：字段没填是合法状态，不能因为它是 null 就让 key 计算失败
-            String text = value == null ? "" : value;
-            // 长度 + 冒号 + 原文 + 竖线：长度前缀保证不会串味，竖线只是分隔符，方便肉眼排查
-            sb.append(text.length()).append(':').append(text).append('|');
+    /** 摘要/团队汇总的三个部分各截到 MAX_SUMMARY_LENGTH：提示词只约定「最多 5 条 × 50 字」，模型不一定守 */
+    private void limitSummaryFields(WeeklySummaryDTO dto) {
+        if (dto == null) {
+            return;
+        }
+        dto.setAchievements(limit(dto.getAchievements(), MAX_SUMMARY_LENGTH));
+        dto.setIssues(limit(dto.getIssues(), MAX_SUMMARY_LENGTH));
+        dto.setSuggestions(limit(dto.getSuggestions(), MAX_SUMMARY_LENGTH));
+    }
+
+    /** 把模型可能脑补的内容清掉：用户原本没填的字段，在结果里一律置为空串 */
+    private void maskEmptyFields(WeeklyReportDTO source, WeeklyReportDTO target) {
+        if (target == null) {
+            return;
+        }
+        if (isBlank(source.getOverallProgress())) {
+            target.setOverallProgress("");
+        }
+        if (isBlank(source.getWeeklyWorkReport())) {
+            target.setWeeklyWorkReport("");
+        }
+        if (isBlank(source.getNextWeekPlan())) {
+            target.setNextWeekPlan("");
+        }
+        if (isBlank(source.getOther())) {
+            target.setOther("");
         }
     }
 
     /**
-     * AI 完整性检查：按周报的四个字段分别判断，并把（可选）上周周报一并交给模型做承接关系比对。
-     * 前三个字段（总体进度/本周进展/下周目标）必填，方法内会先校验；「其他补充」允许为空。
+     * AI 润色：把用户已填写的字段交给模型优化措辞，返回润色后的四字段 DTO。
+     * 与生成草稿不同，润色允许只填一部分（至少一项即可），且未填字段不会发给模型，
+     * 返回结果里这些字段会被强制置空（见 maskEmptyFields），前端只回填「原来填过的」字段。
      *
-     * 结果按「本周四字段 + 上周四字段」的指纹缓存（见 checkFingerprint）：
-     * 周报内容没改动时重复点击直接命中缓存，不再调模型；改了任意一个字段才会重新检查。
-     * 注意：缓存有效期由 Redis 全局 TTL 决定（当前 5 分钟，见 RedisConfig#cacheManager），
-     * 因此修改 ai-check-system.txt 后 5 分钟内仍可能命中旧结果。
-     *
-     * @param currentReport  待检查的本周周报四字段
-     * @param lastWeekReport 上周周报（可为 null，null 时模型跳过"承接关系"检查）
-     * @return 模型按字段列出的缺失项与改进建议
-     * @throws IllegalArgumentException 本周周报为 null，或前三个必填字段有空时抛出
-     */
-    @Cacheable(value = "aiCheck",
-            key = "T(com.practice.weeklyreportmanager.service.AIService).checkFingerprint(#currentReport, #lastWeekReport)")
-    public String checkCompleteness(WeeklyReportDTO currentReport, WeeklyReport lastWeekReport) {
-        // 前三个字段为必填，缺失时直接拦截（与保存/提交的 validateContent 规则一致），
-        // 避免"前三个字段为空"的非法周报被发给模型。
-        if (currentReport == null || isBlank(currentReport.getOverallProgress())
-                || isBlank(currentReport.getWeeklyWorkReport())
-                || isBlank(currentReport.getNextWeekPlan())) {
-            throw new IllegalArgumentException("总体进度、本周进展、下周目标不能为空");
-        }
-
-        // 组装用户消息：分两段（本周周报 + 上周周报），模型据此做"逐字段缺失"和"承接关系"判断。
-        // 上周周报没有时，用一句话明确告知模型跳过承接检查，避免它脑补不存在的上周内容。
-        String userText = "【本周周报】\n" + formatReportFields(
-                    currentReport.getOverallProgress(), currentReport.getWeeklyWorkReport(),
-                    currentReport.getNextWeekPlan(), currentReport.getOther())
-                + "\n\n【上周周报】\n"
-                + (lastWeekReport == null
-                    ? "（未提供上周周报，「本周进展」的承接关系项可跳过检查）"
-                    : formatReportFields(lastWeekReport.getOverallProgress(),
-                        lastWeekReport.getWeeklyWorkReport(),
-                        lastWeekReport.getNextWeekPlan(),
-                        lastWeekReport.getOther()));
-
-        // 发起检查请求，模型返回的是自由文本检查报告（不是 JSON），原样返回给前端展示
-        String content = chatClient.prompt()
-                .system(systemCheckPrompt)
-                .user(userText)
-                .call()
-                .content();
-        if (content == null || content.isBlank()) {
-            throw new IllegalArgumentException("AI 未返回内容，请稍后重试");
-        }
-        return content;
-    }
-
-    /**
-     * AI 润色：把用户已填写的周报字段交给模型做语言与格式优化，返回润色后的四字段 DTO。
-     * 与"生成草稿"不同，润色不要求前三个字段都填——只要至少填了一项即可；
-     * 未填写的字段不会发给模型（防止模型脑补内容），返回结果中对应字段为空串，
-     * 由前端只回填"已填过"的字段。
-     *
-     * @param report      用户当前表单里的四字段内容（允许部分为空）
-     * @param checkResult 周报体检结论（可为空；传了就让润色针对结论里指出的问题调整表达）
+     * @param report 用户当前表单里的四字段内容（允许部分为空）
      * @return 润色后的四字段，未填字段为空串
-     * @throws IllegalArgumentException 四个字段全空，或模型返回内容为空 / 格式异常时抛出
+     * @throws IllegalArgumentException 四个字段全空，或模型没吐出可用内容时抛出
      */
-    public WeeklyReportDTO polishReport(WeeklyReportDTO report, String checkResult) {
-        // 润色允许"只填了部分"：至少一个字段有内容即可（保存/提交时才要求前三个必填）
+    public WeeklyReportDTO polishReport(WeeklyReportDTO report) {
         if (report == null || allBlank(report)) {
             throw new IllegalArgumentException("请至少填写一项周报内容后再润色");
         }
 
-        // 只把已填字段发给模型；空字段不出现，模型就不需要也不应脑补它们的内容
+        // 只把已填字段发给模型；空字段不出现，模型就没机会（也不该）脑补它们
         String userText = "【待润色周报】\n" + formatFilledFields(report);
-        // 带上体检结论让润色"对症"：结论只决定改哪里，不能当成新增事实的依据（提示词里已明确禁止）
-        if (!isBlank(checkResult)) {
-            userText += "\n【周报体检结论】\n" + checkResult;
-        }
 
-        String content = chatClient.prompt()
-                .system(systemPolishPrompt)
-                .user(userText)
-                .call()
-                .content();
-        // 复用生成草稿的 JSON 解析：模型返回的仍是四字段 DTO 结构的纯文本
-        return parseDraft(content);
+        WeeklyReportDTO dto = callForEntity(systemPolishPrompt, new UserMessage(userText),
+                WeeklyReportDTO.class, "润色");
+        limitReportFields(dto);
+        // 用户原本没填的字段，在结果里一律置为空串
+        maskEmptyFields(report, dto);
+        // 先 mask 再判空：只填了「其他补充」、模型又什么都没返回时，mask 完四个字段全空，
+        // 这时报错比返回空串好——前端拿到空值只会显示「AI 认为内容无需修改」，等于把失败伪装成没事
+        if (dto == null || allBlank(dto)) {
+            throw new IllegalArgumentException("AI未返回内容，请稍后重试");
+        }
+        return dto;
     }
 
     /** 判断单个字符串是否为 null 或纯空白 */
@@ -467,70 +279,104 @@ public class AIService {
         }
     }
 
-    /**
-     * 把周报四字段拼成人话交给模型。前三个字段必填（本周入口已校验、上周来自 @NotBlank 的实体），
-     * 无需判空；textOrEmpty 只为可选的「其他补充」兜底。
-     */
-    private String formatReportFields(String overallProgress, String weeklyWorkReport,
-                                      String nextWeekPlan, String other) {
-        return "总体进度：" + overallProgress
-                + "\n本周进展：" + weeklyWorkReport
-                + "\n下周目标：" + nextWeekPlan
-                + "\n其他补充：" + textOrEmpty(other);
-    }
-
     /** null/空串显示为"（空）"，有内容则原样返回 */
     private String textOrEmpty(String value) {
         return isBlank(value) ? "（空）" : value;
     }
 
     /**
-     * 总结某用户最近 4 周已提交的周报。
-     * 结果按「用户 + 本周周一」缓存（value 决定 Redis 前缀、key 决定对应哪次调用，见 @Cacheable）：
-     * 重复请求命中缓存即不再调用大模型，省钱也省等待时间。
-     * 注意：缓存有效期由 Redis 全局 TTL 决定（当前 5 分钟，见 RedisConfig#cacheManager），并非缓存一整周。
+     * 把一组周报拼成给模型看的上下文文本，总长度不超过 MAX_PROMPT_REPORT_CHARS。
      *
-     * @throws IllegalArgumentException 该用户区间内已提交周报少于 2 篇时抛出
+     * 超预算时优先丢「更早的周报」：最近的工作比几个月前的内容更值得让模型看到，
+     * 而最新那篇无论如何都会保留（否则单篇正文就超预算时会拼出一段空上下文）。
+     *
+     * 真丢了篇时会在开头写明，否则模型容易把「没给它看」误答成「周报里没有」。
+     *
+     * @param reports       已按 week_start_date 升序排好的周报
+     * @param withWeekIndex true = 标题带「第几周」编号（个人摘要用）；false = 带具体周一日期（问答用）
+     * @return 拼好的文本，形如「【第1周 09.01~09.05】\n总体进度：…\n」重复若干段
+     */
+    private String buildReportContext(List<WeeklyReport> reports, boolean withWeekIndex) {
+        if (reports.isEmpty()) {
+            return "";
+        }
+        // 「第N周」取周报在原列表里的位置，这样即使前面的篇被丢掉，编号也仍对得上真实位置
+        List<String> blocks = new ArrayList<>(reports.size());
+        for (int i = 0; i < reports.size(); i++) {
+            WeeklyReport report = reports.get(i);
+            // 两种调用只差标题：摘要用「第几周」，问答用周一日期（title 只有 MM.dd，跨年时分不清先后）
+            String header = withWeekIndex
+                    ? "【第" + (i + 1) + "周 " + DateUtils.formatWeekTitle(report.getWeekStartDate()) + "】"
+                    : "【" + report.getWeekStartDate() + " " + report.getTitle() + "】";
+            blocks.add(reportBlock(report, header));
+        }
+        // 从最新一篇往前扩，装得下就继续、装不下就停在当前这篇
+        int start = blocks.size() - 1;
+        int used = blocks.get(start).length();
+        while (start > 0 && used + blocks.get(start - 1).length() <= MAX_PROMPT_REPORT_CHARS) {
+            start--;
+            used += blocks.get(start).length();
+        }
+        // 按时间正序输出，与提示词里承诺的「从早到晚」保持一致
+        StringBuilder sb = new StringBuilder();
+        if (start > 0) {
+            sb.append("（注：更早的周报因篇幅限制未包含在内）\n");
+        }
+        for (int i = start; i < blocks.size(); i++) {
+            sb.append(blocks.get(i));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 单篇周报的正文块：标题 + 四个字段 + 结尾换行。
+     *
+     * 标题由调用方拼好传进来（各处口径不同：摘要「第N周」、问答周一日期、团队汇总成员名），
+     * 本方法只负责字段部分，这样三处拼出来的块格式完全一致，不会因为各写一份而长歪。
+     *
+     * @param header 已经拼好的标题行，如「【第1周 09.01~09.05】」「【张三】」
+     */
+    private String reportBlock(WeeklyReport report, String header) {
+        return header
+                + "\n总体进度：" + report.getOverallProgress()
+                + "\n本周进展：" + report.getWeeklyWorkReport()
+                + "\n下周目标：" + report.getNextWeekPlan()
+                + "\n其他补充：" + textOrEmpty(report.getOther())
+                + '\n';
+    }
+
+    /**
+     * 总结某用户最近 4 周已提交的周报。
+     *
+     * 结果按「用户 + 本周周一」缓存（key 见 @Cacheable）：同一周内重复点击直接命中缓存，不再调模型；
+     * 缓存有效期由全局配置决定（当前 5 分钟，见 RedisConfig#cacheManager），并不是缓存一整周。
+     *
+     * @throws IllegalArgumentException 区间内已提交周报少于 2 篇时抛出
      */
     @Cacheable(value = "aiSummary",
             key = "#userId + '_' + T(com.practice.weeklyreportmanager.utils.DateUtils).getCurrentMonday()")
     public WeeklySummaryDTO summarizeHistory(Long userId) {
-        // 收集最近 4 周的周一，从早到晚：[0]=4 周前、[1]=3 周前、[2]=上周、[3]=本周
+        // 最近 4 周的周一，从早到晚：[0]=4 周前、[1]=3 周前、[2]=上周、[3]=本周
         List<LocalDate> mondayList = new ArrayList<>();
         for (int i = 3; i >= 0; i--) {
             mondayList.add(DateUtils.getMondayOfWeek(LocalDate.now().minusWeeks(i)));
         }
-        // 只总结已提交的周报，草稿不参与（数据查询交给 WeeklyReportService）；
-        // 查询区间取 [0]（最早）到 [3]（本周）
+        // 只统计已提交的周报；用户可能漏写某周，所以下面按实际查到的条数拼接，不按下标硬取
         List<WeeklyReport> reportList = weeklyReportService.getSubmittedReportsBetween(
                 userId, mondayList.get(0), mondayList.get(3));
         if (reportList.size() < 2) {
             throw new IllegalArgumentException("周报数量不足，无法生成摘要");
         }
-        // 按实际查到的条数拼接：用户可能漏写某周，四周里查出 2~3 条是正常的，
-        // 不能按 0~3 的下标硬取，否则会 IndexOutOfBoundsException
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < reportList.size(); i++) {
-            WeeklyReport report = reportList.get(i);
-            sb.append("【第").append(i + 1).append("周 ")
-                    .append(DateUtils.formatWeekTitle(report.getWeekStartDate())).append("】")
-                    .append("\n总体进度：").append(report.getOverallProgress())
-                    .append("\n本周进展：").append(report.getWeeklyWorkReport())
-                    .append("\n下周目标：").append(report.getNextWeekPlan())
-                    .append("\n其他补充：").append(textOrEmpty(report.getOther()))
-                    .append('\n');
-        }
-        String userText = sb.toString();
+        // 拼接总量受 MAX_PROMPT_REPORT_CHARS 约束，见 buildReportContext
+        String userText = buildReportContext(reportList, true);
 
-        String content = chatClient.prompt()
-                .system(systemSummaryPrompt)
-                .user(userText)
-                .call()
-                .content();
+        WeeklySummaryDTO dto = callForEntity(systemSummaryPrompt, new UserMessage(userText),
+                WeeklySummaryDTO.class, "个人摘要");
 
-        WeeklySummaryDTO dto = parseSummary(content);
-        // 三个部分是字符串，直接判空（原来用 toString() 判断，空列表的 "[]" 恒不为空，导致校验失效）
-        if (isBlank(dto.getAchievements()) && isBlank(dto.getIssues()) && isBlank(dto.getSuggestions())) {
+        limitSummaryFields(dto);
+        // 三个部分全空，等于这次没总结出任何东西
+        if (dto == null || (isBlank(dto.getAchievements()) && isBlank(dto.getIssues())
+                && isBlank(dto.getSuggestions()))) {
             throw new IllegalArgumentException("AI未返回内容，请稍后重试");
         }
         return dto;
@@ -538,90 +384,85 @@ public class AIService {
 
     /**
      * 汇总某一周所有已提交成员的周报，生成团队周报（团队进展 / 共性问题 / 协作需求）。
-     * 未提交成员不进模型，由系统算出后回填到 missingMembers。
-     * 结果按「归一化后的周一」缓存（value 决定 Redis 前缀、key 决定对应哪次调用，见 @Cacheable）：
-     * 跨周自动换 key，同周内重复请求命中缓存。
-     * 注意：缓存有效期由 Redis 全局 TTL 决定（当前 5 分钟，见 RedisConfig#cacheManager），并非缓存一整周。
+     * 未提交成员不进模型，由系统算出来后回填到 missingMembers。
      *
-     * @throws IllegalArgumentException 该周无已提交周报，或少于 2 篇时抛出
+     * 结果按「归一化后的周一」缓存（key 见 @Cacheable）：跨周自动换 key，同一周内重复点击命中缓存；
+     * 缓存有效期由全局配置决定（当前 5 分钟，见 RedisConfig#cacheManager）。
+     *
+     * @throws IllegalArgumentException 该周没有已提交周报，或不足 2 篇时抛出
      */
     @Cacheable(value = "teamSummary",
             key = "T(com.practice.weeklyreportmanager.utils.DateUtils)"
                     + ".getMondayOfWeek(#weekStartDate != null ? #weekStartDate : T(java.time.LocalDate).now())")
     public TeamSummaryDTO summarizeTeam(LocalDate weekStartDate) {
-        // 传日期则汇总该周周报，不传则默认汇总当前周周报
+        // 传了日期就汇总那一周，不传默认本周；先归一到周一，与 week_start_date 的存法保持一致
         if (weekStartDate == null) {
             weekStartDate = DateUtils.getCurrentMonday();
         } else {
             weekStartDate = DateUtils.getMondayOfWeek(weekStartDate);
         }
-        // 获取已提交的周报
         List<WeeklyReport> submitted = weeklyReportService.getSubmittedReportOfWeek(weekStartDate);
         if (submitted.isEmpty()) {
             throw new IllegalArgumentException("本周暂无已提交周报");
         } else if (submitted.size() < 2) {
             throw new IllegalArgumentException("周报数量不足，无法生成周报");
         }
-        // 获取所有成员
         List<MockUserService.MockUser> allmembers = mockUserService.getAllMembers();
 
-        // 按userId构建快速查找索引
+        // 按 userId 建索引，判断谁没提交时就不用反复遍历已提交列表
         Map<Long, WeeklyReport> reportIndex = new HashMap<>();
         for (WeeklyReport report : submitted) {
-            Long key = report.getUserId();
-            reportIndex.put(key, report);
+            reportIndex.put(report.getUserId(), report);
         }
 
-        // 遍历所有成员，按userId查找相应周报，如果周报为null，则该成员未提交周报，加入missingMembers列表
+        // 名单里有、当周没查到 = 未提交；名单外的提交者（如已离职、管理员）不算进 missingMembers，
+        // 他的周报仍会进 prompt，只是标题退化成「成员+id」
         List<String> missingMembers = new ArrayList<>();
         for (MockUserService.MockUser user : allmembers) {
-            Long key = user.getId();
-            WeeklyReport report = reportIndex.get(key);
-            if (report == null) {
+            if (!reportIndex.containsKey(user.getId())) {
                 missingMembers.add(user.getName());
             }
         }
 
-        // StringBuilder 必须在循环外声明：写在循环里的话，每轮都是新对象，出循环就拿不到了
+        // 每个成员一段，标题是成员名；正文格式与摘要/问答共用 reportBlock，免得三处各写一份
         StringBuilder sb = new StringBuilder();
         for (WeeklyReport report : submitted) {
             String userName = mockUserService.getUserName(report.getUserId());
-            sb.append("【").append(userName != null ? userName : "成员" + report.getUserId()).append("】")
-                    .append("\n总体进度：").append(report.getOverallProgress())
-                    .append("\n本周进展：").append(report.getWeeklyWorkReport())
-                    .append("\n下周目标：").append(report.getNextWeekPlan())
-                    .append("\n其他补充：").append(textOrEmpty(report.getOther()))
-                    .append('\n');
+            sb.append(reportBlock(report, "【" + (userName != null ? userName : "成员" + report.getUserId()) + "】"));
         }
         String userText = sb.toString();
 
-        String content = chatClient.prompt()
-                .system(systemTeamSummaryPrompt)
-                .user(userText)
-                .call()
-                .content();
-
-        TeamSummaryDTO dto = parseTeamSummary(content);
-        // 三个部分是字符串，直接判空（别用 toString()，空列表的 "[]" 恒不为空）
+        // 这里用 TeamSummaryAI 而不是直接反序列化成 TeamSummaryDTO：.entity() 会把类的字段做成 schema 塞进 prompt，
+        // 多出来的 missingMembers 会诱使模型自己去编一份「未提交名单」，而那本该由系统算
+        TeamSummaryAI ai = callForEntity(systemTeamSummaryPrompt, new UserMessage(userText),
+                TeamSummaryAI.class, "团队汇总");
+        TeamSummaryDTO dto = new TeamSummaryDTO();
+        if (ai != null) {
+            dto.setTeamProgress(limit(ai.getTeamProgress(), MAX_SUMMARY_LENGTH));
+            dto.setCommonIssues(limit(ai.getCommonIssues(), MAX_SUMMARY_LENGTH));
+            dto.setCollaborationNeeds(limit(ai.getCollaborationNeeds(), MAX_SUMMARY_LENGTH));
+        }
+        // 三个部分全空，等于这次没汇总出任何东西
         if (isBlank(dto.getTeamProgress()) && isBlank(dto.getCommonIssues())
                 && isBlank(dto.getCollaborationNeeds())) {
             throw new IllegalArgumentException("AI未返回内容，请稍后重试");
         }
-        // 未提交成员是系统算出来的，不是模型生成的，所以放在解析之后回填
+        // 未提交成员是系统算出来的，不是模型生成的，所以放在校验之后回填
         dto.setMissingMembers(String.join("、", missingMembers));
         return dto;
     }
 
     /**
-     * 对话式周报问答：把该用户在指定时间范围内已提交的周报拼成上下文，连同用户的问题一起交给模型回答。
-     * 与其它 AI 接口不同，这里返回的是给用户直接看的自由文本，不是 JSON，所以提示词里也不要求 JSON 输出。
+     * 对话式周报问答：把该用户在指定时间范围内已提交的周报拼成上下文，连同问题一起交给模型。
+     * 与其它入口不同，这里要的是给用户直接看的自由文本，所以不要求 JSON，也不做截断。
      *
      * @param request 问答请求（userId、question 必填，startDate/endDate 可选）
-     * @return 模型基于周报数据给出的回答；时间范围内没有已提交周报时返回一句固定提示
-     * @throws IllegalArgumentException 开始时间晚于结束时间，或模型未返回内容时抛出
+     * @return 模型基于周报数据给出的回答；区间内没有已提交周报时返回一句固定提示
+     * @throws IllegalArgumentException 开始时间晚于结束时间时抛出
+     * @throws IllegalStateException    AI 服务不可用时抛出
      */
     public String chatWithReports(ChatRequest request) {
-        // 未传日期则默认查最近 4 周（本周 + 前 3 周），与个人摘要的时间口径保持一致
+        // 不传日期默认查最近 4 周（本周 + 前 3 周），与个人摘要的时间口径一致
         LocalDate end = request.getEndDate() != null ? request.getEndDate() : LocalDate.now();
         LocalDate start = request.getStartDate() != null
                 ? request.getStartDate()
@@ -629,7 +470,7 @@ public class AIService {
         if (start.isAfter(end)) {
             throw new IllegalArgumentException("开始时间不能晚于结束时间");
         }
-        // week_start_date 存的是周一：起始日期对齐到所在周的周一，否则会漏掉起始日那一周的周报
+        // week_start_date 存的是周一：起始日也对齐到所在周的周一，否则会整周漏查
         start = DateUtils.getMondayOfWeek(start);
 
         List<WeeklyReport> reports = weeklyReportService.getSubmittedReportsBetween(request.getUserId(), start, end);
@@ -637,27 +478,22 @@ public class AIService {
             return "在指定时间范围内没有找到已提交的周报";
         }
 
-        StringBuilder sb = new StringBuilder();
-        for (WeeklyReport report : reports) {
-            // 带上 weekStartDate：title 只有 MM.dd，跨年时模型分不清先后，无法按时间顺序作答
-            sb.append("【").append(report.getWeekStartDate()).append(" ").append(report.getTitle()).append("】")
-                    .append("\n总体进度：").append(report.getOverallProgress())
-                    .append("\n本周进展：").append(report.getWeeklyWorkReport())
-                    .append("\n下周目标：").append(report.getNextWeekPlan())
-                    .append("\n其他补充：").append(textOrEmpty(report.getOther()))
-                    // 每篇周报之间空一行，否则多周的文本会连在一起（“…其他补充：xxx【09.07~09.11】…”）
-                    .append("\n\n");
-        }
         String userText = "以下是该用户的周报数据（按时间从早到晚排列）：\n\n"
-                + sb.toString()
+                + buildReportContext(reports, false)
                 + "用户问题：" + request.getQuestion();
 
-        String content = chatClient.prompt()
-                .system(systemChatPrompt)
-                .user(userText)
-                .call()
-                .content();
-        // 模型返回空（超时/网络异常等）时给出与其它 AI 接口一致的业务错误，避免前端拿到 null 无从展示
+        String content;
+        try {
+            content = chatClient.prompt()
+                    .system(systemChatPrompt)
+                    .user(userText)
+                    .call()
+                    .content();
+        } catch (RestClientException e) {
+            log.error("AI问答调用失败：服务不可用或鉴权异常", e);
+            throw new IllegalStateException("AI 服务暂时不可用，请稍后重试", e);
+        }
+        // 模型返回空（超时、被内容策略拦掉等）时给和其它入口一致的业务错误，别让前端拿到 null
         if (content == null || content.isBlank()) {
             throw new IllegalArgumentException("AI未返回内容，请稍后重试");
         }

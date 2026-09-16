@@ -10,7 +10,6 @@ import java.util.List;
 
 public interface WeeklyReportService {
     WeeklyReport getCurrentWeekReport(Long userId);
-    WeeklyReport getLastWeekReport(Long userId);
     WeeklyReport saveWeeklyReport(WeeklyReportDTO dto, Long userId);
     WeeklyReport submitWeeklyReport(WeeklyReportDTO dto, Long userId);
     Page<WeeklyReport> getReports(Long userId,Integer pageNo, Integer pageSize, LocalDate startDate, LocalDate endDate);

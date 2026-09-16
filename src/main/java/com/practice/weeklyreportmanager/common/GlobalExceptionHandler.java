@@ -17,6 +17,14 @@ public class GlobalExceptionHandler {
         return Result.error(400, e.getMessage());
     }
 
+    // 依赖的外部服务不可用（如 AI 服务连不上、鉴权失败）：用 503 而不是 500，
+    // 否则下面那个兜底的 Exception 处理器会把「服务暂时不可用」这条对用户有用的提示吞掉，只回一句"系统异常"
+    @ExceptionHandler(IllegalStateException.class)
+    public Result<Void> handleIllegalStateException(IllegalStateException e) {
+        log.error("依赖服务不可用：{}", e.getMessage(), e);
+        return Result.error(503, e.getMessage() != null ? e.getMessage() : "服务暂时不可用，请稍后重试");
+    }
+
     // 处理参数校验异常
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
