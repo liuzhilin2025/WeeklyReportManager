@@ -1,0 +1,104 @@
+services:
+
+  # ---------- MySQL ----------
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: db_practice
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 首次启动时自动执行这里的 .sql（只在数据卷为空时执行一次）
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Ollama（embedding 服务） ----------
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      # 注意：healthcheck 通过只代表「服务在跑」，不代表「模型已就绪」
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # 有 NVIDIA 显卡且已装 Container Toolkit 时打开（embedding 用 CPU 也能跑，只是慢）
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ---------- 一次性容器：拉取 embedding 模型 ----------
+  # 为什么需要它：ollama 的 healthcheck 只能证明服务活着，
+  # 证明不了 bge-m3 已经拉下来。少了这一步，应用启动时索引会因「模型不存在」而失败。
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "bge-m3"]
+    restart: "no"
+
+  # ---------- 应用 ----------
+  app:
+    build: .
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    environment:
+      # 用 Spring Boot 的环境变量覆盖机制（relaxed binding）改配置，
+      # 不需要为容器单独维护一份 application.properties
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_practice?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      # 关键：容器里的 localhost 指向自己，必须改成服务名
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:8080"
+    mem_limit: 1g
+
+volumes:
+  mysql-data:
+  redis-data:
+  ollama-data:
