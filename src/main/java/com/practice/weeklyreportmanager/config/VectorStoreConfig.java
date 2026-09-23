@@ -25,6 +25,13 @@ import javax.sql.DataSource;
  * 结果就是业务库连接凭空消失，MyBatis 反而拿 PG 的连接去查业务表。
  * 所以 MySQL 的数据源必须在这里显式建出来，并标 @Primary。
  * <p>
+ * @Bean  把方法返回值注册成容器里的bean
+ * <p>
+ * @Qualifier("名字")  作用：按类型注入有多个候选时，用 bean名字精确指定。
+ * <p>
+ * @ConfigurationProperties(prefix = "...") 作用：把配置里某个前缀下的属性，批量绑定到对象上。
+ * <p>
+ * @Primary  作用：同类型有多个候选时，标记"没特别指定就选我"。
  * 关于 @Primary：容器里同时存在两个 DataSource 时，MyBatis-Plus、事务管理器、自动配置的
  * JdbcTemplate 都按类型注入。没有 @Primary 会直接抛 NoUniqueBeanDefinitionException。
  */
@@ -128,6 +135,8 @@ public class VectorStoreConfig {
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
                 // 不写也会从 EmbeddingModel 推导；显式写出来是为了让「换模型必须重建表」有据可依
                 .dimensions(VECTOR_DIMENSIONS)
+                // 距离算法  余弦距离(Cosine Distance) 文本语义检索最常用的算法。
+                // 衡量的是两个向量在方向上的差异，而不是绝对距离(不受文本长短影响)
                 .distanceType(PgVectorStore.PgDistanceType.COSINE_DISTANCE)
                 // HNSW：查询更快，且空表就能建索引（IVFFlat 需要先有数据才能训练）
                 .indexType(PgVectorStore.PgIndexType.HNSW)
