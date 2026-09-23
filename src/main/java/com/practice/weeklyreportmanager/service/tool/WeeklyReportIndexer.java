@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -18,16 +19,19 @@ import java.util.Map;
 /**
  * 启动时把「已提交」的周报全量灌进向量库，让语义检索有数据可查。
  * <p>
- * 为什么必须在每次启动时重建：向量库用的是内存实现（SimpleVectorStore），进程退出即失。
- * 所以全量索引不是「可选的优化」，而是每次启动的必需品——不跑这一步，searchReports 永远检索不到东西。
- * <p>
  * 与增量同步的分工：本类负责「把已有的都灌进去」（启动时一次），
  * WeeklyReportVectorSyncListener 负责「之后改动的跟上」（每次周报变更的事务提交后）。
  * 两者共用下面的 toDocument，这是两条路径生成文档格式一致的结构性保证。
  * <p>
+ * 什么时候需要重建，取决于向量库的实现：
+ * <ul>
+ *   <li>内存实现（SimpleVectorStore）：进程退出即失，每次启动都必须重建；</li>
+ *   <li>持久化实现（PGvector 等）：数据一直在，重建纯属浪费——每次都要白算一遍 embedding。
+ *       用 app.vector-store.rebuild-on-startup 控制，持久化时设为 false。</li>
+ * </ul>
+ * <p>
  * 为什么用 ApplicationRunner 而不是 @PostConstruct：前者保证「整个容器都就绪了」才执行，
  * 后者只保证「当前这个 Bean 的依赖注入完成」。本类要查数据库，位置越晚越安全。
- * 代价是这里抛出的异常会导致应用启动失败，详见 run 的说明。
  */
 @Component
 public class WeeklyReportIndexer implements ApplicationRunner {
@@ -35,7 +39,7 @@ public class WeeklyReportIndexer implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(WeeklyReportIndexer.class);
 
     /**
-     * 向量库（SimpleVectorStore），由 VectorStoreConfig 提供
+     * 向量库，由 VectorStoreConfig 提供（声明成接口类型：换实现时本类不用改）
      */
     private final VectorStore vectorStore;
 
@@ -44,31 +48,51 @@ public class WeeklyReportIndexer implements ApplicationRunner {
      */
     private final WeeklyReportService weeklyReportService;
 
-    public WeeklyReportIndexer(VectorStore vectorStore, WeeklyReportService weeklyReportService) {
+    /**
+     * 是否在启动时全量重建索引。
+     * 默认 true（内存向量库的必需行为）；换成持久化实现后应设为 false，
+     * 只在首次部署、或改了文档结构（换 embedding 模型、改正文拼接格式）时手动打开一次。
+     */
+    private final boolean rebuildOnStartup;
+
+    public WeeklyReportIndexer(VectorStore vectorStore,
+                               WeeklyReportService weeklyReportService,
+                               @Value("${app.vector-store.rebuild-on-startup:true}") boolean rebuildOnStartup) {
         this.vectorStore = vectorStore;
         this.weeklyReportService = weeklyReportService;
+        this.rebuildOnStartup = rebuildOnStartup;
     }
 
     /**
-     * 启动时执行一次：全量查 → 批量转换 → 批量写入。
+     * 启动时执行一次：判断是否需要重建 → 全量查 → 批量转换 → 批量写入。
      * <p>
-     * 注意 vectorStore.add 内部会对每篇周报**真实调用 embedding 服务**，由此带来两个后果：
+     * 注意 vectorStore.add 内部会对每篇周报真实调用 embedding 服务，由此带来两个后果：
      * <p>
-     * 1. 启动耗时与周报数量正相关，数据一多会明显变慢；
-     * 2. embedding 服务不可用时（Ollama 没起 / bge-m3 没拉），异常会直接冒到 SpringApplication.run，
-     * 导致**整个应用启动失败**，而不只是语义检索不可用。
-     * 这里故意没包 try-catch（与增量同步那边的容错口径不同），排查「启动不起来」时先看这一点。
+     * 1. 启动耗时与周报数量正相关，数据一多会明显变慢（所以持久化时要靠 rebuildOnStartup 跳过）；
+     * 2. embedding 服务不可用时（Ollama 没起 / bge-m3 没拉）会抛异常——这里包了 try-catch 兜住，
+     * 让它降级成「语义检索不可用」，而不是拖垮整个应用的启动。
      * <p>
      * 空集合提前返回并留日志：让启动日志能自解释——看到「跳过」就知道不是失败了，是本来就没数据。
      */
     @Override
     public void run(ApplicationArguments args) {
+        if (!rebuildOnStartup) {
+            // 持久化向量库的数据一直在，进这里说明配置里关了重建 —— 不是失败
+            log.info("向量索引跳过：rebuild-on-startup=false");
+            return;
+        }
+
         try {
             List<WeeklyReport> list = weeklyReportService.getAllSubmittedReports();
             if (list.isEmpty()) {
                 log.info("向量索引跳过：没有已提交周报");
                 return;
             }
+
+            // stream：把集合转成流式管道（源 list 本身不会被修改）
+            // map：  逐个把 WeeklyReport 转成 Document —— WeeklyReportIndexer::toDocument 是方法引用，
+            //        等价于 r -> WeeklyReportIndexer.toDocument(r)
+            // toList：收集回 List，交给 add 一次性提交（批量走 embedding，比逐条 add 快得多）
             vectorStore.add(list.stream().map(WeeklyReportIndexer::toDocument).toList());
             log.info("向量索引完成，共 {} 篇", list.size());
         } catch (Exception e) {
@@ -80,7 +104,9 @@ public class WeeklyReportIndexer implements ApplicationRunner {
 
 
     /**
-     * 把一条周报转成向量库里的 Document（正文 + 元数据）。
+     * 把一条周报转成向量库里的 Document（id + 正文 + 元数据）。
+     * <p>
+     * Document 是向量库里最基础的数据单元——把 VectorStore 看成一张表，Document 就是其中一行。
      * <p>
      * 做成 static 是为了「口径唯一」：本类的全量灌入与 WeeklyReportVectorSyncListener 的增量同步都要调用它。
      * 若各自写一份，两条路径生成的文本格式迟早会分叉。

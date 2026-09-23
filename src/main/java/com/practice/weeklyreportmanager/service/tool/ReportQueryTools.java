@@ -134,6 +134,12 @@ public class ReportQueryTools {
      * 为什么只返回周次、不返回正文：正文一律走 getReport 读，这样
      * 1) 命中结果本身 token 可控；2) 越界检查、单篇长度上限这些护栏自动生效，
      * 不用在两条路径上各维护一份。与 listSubmittedWeeks → getReport 的两步模式保持一致。
+
+     * similaritySearch（相似度搜索）的工作原理是：
+     * 1. 把你的查询词（query，即“怎么提升查询速度”）发给 Ollama，变成一串浮点数向量（比如 [0.1, -0.5, 0.8...]）。
+     * 2. 拿着这串向量，去内存向量库里比对之前存进去的周报向量。
+     * 3. 计算它们之间的“距离”（通常是余弦相似度）。
+     * 4. 找出距离最近（最相似）的几篇周报返回。
      */
     @Tool(description = "按语义检索周报主题。当用户问的是『什么时候做过某事』『有没有提到过某个话题』"
             + "这类不记得具体周次的模糊问题时使用；拿到周次后必须再用 getReport 读正文。"
@@ -147,19 +153,26 @@ public class ReportQueryTools {
         // 日期范围放应用层筛——SimpleVectorStore 对 gte/lte 不生效
         // （实测：带日期条件的查询与不带的结果完全一致），所以 topK 要放大，给筛除留余量。
         FilterExpressionBuilder b = new FilterExpressionBuilder();
+
+        // 它强制向量库只能在“当前登录用户的文档”里搜索，防止越权查到别人的周报。
         Filter.Expression filter = b.eq("userId", userId).build();
 
-        List<Document> hits = vectorStore.similaritySearch(
+        // similaritySearch就是向量数据库的“百度搜索”
+        List<Document> hits = vectorStore.similaritySearch( // similaritySearch 返回一个原始 List
                 SearchRequest.builder()
+                        // .query是传入用户的自然语言问题。此时传入的是文本，Spring AI框架会在底层自动调用Embedding模型把文本变成向量
                         .query(query)
-                        .topK(SEARCH_TOP_K)
+                        .topK(SEARCH_TOP_K)  // 关键参数。告诉向量库：返回相似度最高的前K个结果
+                        // 及格线。相似度得分范围是0到1.设置为0.5意味着，如果某篇周报和用户的提问相似度只有0.3（完全不搭边）
+                        // 即使它排在前20名，也会被直接丢弃。这能有效防止大模型“答非所问”。
                         .similarityThreshold(0.5)
-                        .filterExpression(filter)
+                        .filterExpression(filter) // 安全锁。这里的filter就是前面用FilterExpressionBuilder构建的
+                        // 结束构建，把上面所有参数打包成一个SearchRequest对象，正式传给similaritySearch去执行
                         .build())
                 .stream()
-                .filter(this::inRange)
-                .limit(MAX_HITS)
-                .toList();
+                .filter(this::inRange) // 过滤工序：把日期不在范围内的 Document 剔除掉
+                .limit(MAX_HITS)       // 截取工序：防止结果太多，最多只留 MAX_HITS 个
+                .toList();             // 打包成最终的hits列表
 
         if (hits.isEmpty()) {
             return "在" + startMonday + " ~ " + endDate + " 范围内没有语义相关的周报。"
@@ -187,6 +200,11 @@ public class ReportQueryTools {
             return false;
         }
         String s = ws.toString();
+        // 判断当前这篇周报的日期（s），是否落在查询的起始日期（startMonday）和结束日期（endDate）之间（两头都包含）。
+        // compareTo 是 Java 中 String 类自带的比较方法。它按照字典序（逐个字符的 ASCII 码）进行比较
+        // 如果 s 小于目标字符串，返回负数。
+        // 如果 s 等于目标字符串，返回 0。
+        // 如果 s 大于目标字符串，返回正数。
         return s.compareTo(startMonday.toString()) >= 0 && s.compareTo(endDate.toString()) <= 0;
     }
 }

@@ -82,6 +82,8 @@ services:
         condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
       # 用 Spring Boot 的环境变量覆盖机制（relaxed binding）改配置，
       # 不需要为容器单独维护一份 application.properties
@@ -98,7 +100,26 @@ services:
       - "8080:8080"
     mem_limit: 1g
 
+  postgres:
+    # 必须用 pgvector 官方镜像：标准 postgres 镜像不含 vector 扩展
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: vectordb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d vectordb" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   mysql-data:
   redis-data:
   ollama-data:
+  pgvector-data:
