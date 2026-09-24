@@ -127,6 +127,11 @@ public class VectorStoreConfig {
      * （旧的 spring.ai.openai.embedding.enabled / spring.ai.ollama.embedding.enabled 这类开关在 1.1.x 已移除。）
      * <p>
      * 换实现时本类以外一行都不用改——ReportQueryTools 只依赖 VectorStore 接口。
+     *
+     * dimensions 嵌入维度。维度在创建表时设置到嵌入列。若更改维度，需重新创建 vector_store表
+     * distanceType 搜索距离类型。默认是 COSINE_DISTANCE。
+     * indexType 最近邻搜索索引类型。默认是 HNSW。
+     * initializeSchema 是否初始化模式。默认是false。
      */
     @Bean
     public VectorStore weeklyReportVectorStore(
