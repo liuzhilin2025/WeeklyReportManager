@@ -87,7 +87,6 @@ services:
     environment:
       # 用 Spring Boot 的环境变量覆盖机制（relaxed binding）改配置，
       # 不需要为容器单独维护一份 application.properties
-      SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_practice?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -95,6 +94,8 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       # 关键：容器里的 localhost 指向自己，必须改成服务名
       SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      PG_URL: jdbc:postgresql://postgres:5432/vectordb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       TZ: Asia/Shanghai
     ports:
