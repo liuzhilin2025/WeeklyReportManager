@@ -87,6 +87,7 @@ services:
     environment:
       # 用 Spring Boot 的环境变量覆盖机制（relaxed binding）改配置，
       # 不需要为容器单独维护一份 application.properties
+      SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_practice?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
